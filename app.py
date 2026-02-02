@@ -113,7 +113,7 @@ def main():
         
         marker_size = st.slider("点大小", 5, 20, 10)
 
-        st.caption("v1.0.0 | Python + Streamlit")
+        st.caption("v1.1.0 | Python + Streamlit")
 
     # --- Main Content ---
     
@@ -156,8 +156,14 @@ def main():
     # --- Tabs for Visualization ---
     
     tab_titles = [
-        "📉 误差分布 (Box)", "📈 排序趋势 (Trend)", "🔗 相关性 (Corr)", 
-        "📊 分组柱状 (Bar)", "📏 键长同步性 (Sync)", "🔥 异步性热图 (Heat)"
+        "📉 误差分布 (Box)", 
+        "📈 排序趋势 (Trend)", 
+        "🔗 相关性 (Corr)", 
+        "📊 分组柱状 (Bar)", 
+        "🔥 绝对能垒热图",   # New
+        "🌡️ 误差方向热图",   # New
+        "📏 键长同步性 (Sync)", 
+        "🧱 异步性热图 (Heat)"
     ]
     tabs = st.tabs(tab_titles)
 
@@ -301,8 +307,90 @@ def main():
         else:
             st.warning("请先加载能垒数据 (格式 A)")
 
-    # 5. Synchronicity (Bond)
+    # 7. Absolute Heatmap (New)
     with tabs[4]:
+        if has_energy:
+            df = st.session_state['energy_data']
+            
+            # Prepare data
+            heatmap_z = df.drop(columns=["System"]).values
+            heatmap_x = df.drop(columns=["System"]).columns.tolist()
+            heatmap_y = df["System"].tolist()
+            
+            fig = go.Figure(data=go.Heatmap(
+                z=heatmap_z,
+                x=heatmap_x,
+                y=heatmap_y,
+                colorscale='YlOrRd',
+                text=[[f"{val:.1f}" for val in row] for row in heatmap_z],
+                texttemplate="%{text}",
+                showscale=True,
+                colorbar=dict(title="Energy")
+            ))
+            
+            fig.update_layout(
+                title="🔥 绝对能垒热力图 (Absolute Barriers)",
+                xaxis_title="Method",
+                yaxis_title="System",
+                template=selected_theme,
+                height=600
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("颜色越深代表能垒越高（反应越难）。")
+        else:
+            st.warning("请先加载能垒数据 (格式 A)")
+
+    # 8. Signed Error Heatmap (New)
+    with tabs[5]:
+        if has_energy:
+            df = st.session_state['energy_data']
+            methods = [c for c in df.columns if c != "System"]
+            
+            col_cfg, col_plot = st.columns([1, 4])
+            with col_cfg:
+                benchmark = st.selectbox("选择基准方法", methods, key='heat_diff_bench', index=len(methods)-1)
+
+            with col_plot:
+                # Calculate Differences
+                df_numeric = df.set_index("System")[methods]
+                df_diff = df_numeric.sub(df_numeric[benchmark], axis=0)
+                
+                # Determine max range for symmetric coloring
+                max_abs = max(abs(df_diff.min().min()), abs(df_diff.max().max()))
+                
+                fig = go.Figure(data=go.Heatmap(
+                    z=df_diff.values,
+                    x=df_diff.columns,
+                    y=df_diff.index,
+                    colorscale='RdBu_r', # Blue (low/negative) -> White (0) -> Red (high/positive)
+                    zmin=-max_abs,
+                    zmax=max_abs,
+                    text=[[f"{val:+.2f}" for val in row] for row in df_diff.values],
+                    texttemplate="%{text}",
+                    showscale=True,
+                    colorbar=dict(title="Error")
+                ))
+                
+                fig.update_layout(
+                    title=f"🌡️ 误差方向热力图 (vs {benchmark})",
+                    xaxis_title="Method",
+                    yaxis_title="System",
+                    template=selected_theme,
+                    height=600
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("""
+                **图例说明：**
+                * **⚪ 白色 (0)**: 与基准一致。
+                * **🔴 红色 (+)**: 计算值 **高于** 基准（高估）。
+                * **🔵 蓝色 (-)**: 计算值 **低于** 基准（低估）。
+                """)
+        else:
+            st.warning("请先加载能垒数据 (格式 A)")
+
+    # 5. Synchronicity (Bond) (Originally Tab 4)
+    with tabs[6]:
         if has_bond:
             df = st.session_state['bond_data']
             
@@ -337,8 +425,8 @@ def main():
         else:
             st.warning("请先加载键长数据 (格式 B)")
 
-    # 6. Heatmap (Bond)
-    with tabs[5]:
+    # 6. Heatmap (Bond) (Originally Tab 5)
+    with tabs[7]:
         if has_bond:
             df = st.session_state['bond_data'].copy()
             df['Async'] = (df['R1'] - df['R2']).abs()
