@@ -684,7 +684,7 @@ def main():
                 
                 # Show raw metrics table
                 st.markdown("#### 📄 详细指标数据")
-                st.dataframe(metrics_df.style.format("{:.3f}"), use_container_width=True)
+                st.dataframe(metrics_df.style.format(subset=["MAE", "RMSE", "MaxError", "R2"], formatter="{:.3f}"), use_container_width=True)
 
 
     # E. Geometry Analysis (Bond)
