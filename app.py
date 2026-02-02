@@ -121,7 +121,8 @@ def main():
             nav_options.extend([
                 "📉 基础误差分析 (Basic Error)",
                 "📈 化学趋势分析 (Chemical Trend)",
-                "⚖️ 方法一致性评估 (Consistency)"
+                "⚖️ 方法一致性评估 (Consistency)",
+                "🔬 深度化学分析 (Deep Analysis)"
             ])
         if has_bond:
             nav_options.append("📐 过渡态几何分析 (Geometry)")
@@ -153,7 +154,8 @@ def main():
             methods = [c for c in energy_df.columns if c != "System"]
             
             # Show Benchmark Selector for relevant sections
-            if "误差" in selected_nav or "一致性" in selected_nav:
+            # Shows for Basic Error, Consistency, and Deep Analysis
+            if any(x in selected_nav for x in ["误差", "一致性", "深度"]):
                 st.info("👇 请选择基准方法")
                 benchmark_method = st.selectbox(
                     "基准方法 (Benchmark)", 
@@ -161,8 +163,8 @@ def main():
                     index=len(methods)-1
                 )
             
-            # Show Reference System Selector for Trend section
-            if "趋势" in selected_nav:
+            # Show Reference System Selector for Trend OR Deep Analysis
+            if any(x in selected_nav for x in ["趋势", "深度"]):
                 st.info("👇 请选择参考体系")
                 systems = energy_df["System"].unique()
                 reference_system = st.selectbox(
@@ -498,6 +500,192 @@ def main():
                 )
                 st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
                 st.caption("X轴: 两种方法的平均值。 Y轴: 两种方法的差值。红线范围 (±1.96 SD) 代表 95% 的一致性区间。")
+
+    # NEW SECTION: Deep Analysis
+    elif "深度化学分析" in selected_nav and has_energy:
+        st.header("🔬 深度化学分析 (Deep Analysis)")
+        df = st.session_state['energy_data']
+        methods = [c for c in df.columns if c != "System"]
+        other_methods = [m for m in methods if m != benchmark_method]
+        
+        tab_da1, tab_da2, tab_da3 = st.tabs([
+            "📊 相对能垒 (Bar)", 
+            "🎯 Bland-Altman 分析", 
+            "🕸️ 综合性能雷达图"
+        ])
+        
+        # Module 1: Relative Barrier / Substituent Effect (Grouped Bar)
+        with tab_da1:
+            st.markdown(f"**分析目标**: 展示各体系相对于 **{reference_system}** 的能垒变化，消除系统误差，直观显示取代基效应。")
+            
+            ref_row = df[df["System"] == reference_system]
+            if not ref_row.empty:
+                # Calculate Delta Delta E
+                df_numeric = df.drop(columns=["System"])
+                ref_values = ref_row.drop(columns=["System"]).iloc[0]
+                df_rel = df_numeric - ref_values
+                df_rel["System"] = df["System"]
+                
+                # Melt for Bar Chart
+                df_melted = df_rel.melt(id_vars=["System"], value_vars=methods, var_name="Method", value_name="RelEnergy")
+                
+                fig = px.bar(
+                    df_melted, 
+                    x="System", 
+                    y="RelEnergy", 
+                    color="Method", 
+                    barmode="group",
+                    template=selected_theme
+                )
+                
+                fig.update_layout(
+                    title=f"相对能垒 (ΔΔE vs {reference_system})",
+                    yaxis_title="ΔΔE (kcal/mol)",
+                    height=600
+                )
+                st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
+                st.caption("正值表示能垒升高（阻碍效应），负值表示能垒降低（催化效应）。")
+            else:
+                st.error("未找到参考体系数据，请在侧边栏选择正确的参考体系。")
+
+        # Module 2: Bland-Altman (Repeated/Enhanced here)
+        with tab_da2:
+            st.markdown("**分析目标**: 深度检测待测方法与基准方法的一致性及系统偏差。")
+            
+            col_sel, col_viz = st.columns([1, 4])
+            with col_sel:
+                ba_target = st.selectbox("选择待测方法", other_methods, key="da_ba_target")
+            
+            with col_viz:
+                # Calculation
+                vals_bench = df[benchmark_method]
+                vals_target = df[ba_target]
+                
+                means = (vals_bench + vals_target) / 2
+                diffs = vals_target - vals_bench
+                mean_diff = np.mean(diffs)
+                std_diff = np.std(diffs)
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=means, y=diffs, mode='markers',
+                    text=df["System"], marker=dict(size=marker_size, color='royalblue', opacity=0.7),
+                    name="Data Points"
+                ))
+                
+                # Lines
+                fig.add_hline(y=mean_diff, line_dash="solid", line_color="black", annotation_text=f"Mean: {mean_diff:.2f}")
+                fig.add_hline(y=mean_diff + 1.96*std_diff, line_dash="dash", line_color="red", annotation_text="+1.96 SD")
+                fig.add_hline(y=mean_diff - 1.96*std_diff, line_dash="dash", line_color="red", annotation_text="-1.96 SD")
+                
+                # Fill area
+                fig.add_hrect(y0=mean_diff - 1.96*std_diff, y1=mean_diff + 1.96*std_diff, 
+                              line_width=0, fillcolor="red", opacity=0.1)
+                
+                fig.update_layout(
+                    title=f"Bland-Altman Plot: {ba_target} - {benchmark_method}",
+                    xaxis_title="Average Energy (kcal/mol)",
+                    yaxis_title="Difference (kcal/mol)",
+                    template=selected_theme,
+                    height=600
+                )
+                st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
+
+        # Module 3: Radar Chart (Method Performance)
+        with tab_da3:
+            st.markdown(f"**分析目标**: 综合评估各方法相对于基准 **{benchmark_method}** 的各项性能指标。")
+            st.info("💡 **指标说明**：图表已做归一化处理。点越靠外（面积越大），表示该指标性能越好（误差越小或相关性越高）。")
+            
+            metrics_data = []
+            
+            # Calculate metrics
+            for m in other_methods:
+                y_true = df[benchmark_method]
+                y_pred = df[m]
+                
+                mae = np.mean(np.abs(y_true - y_pred))
+                rmse = np.sqrt(np.mean((y_true - y_pred)**2))
+                max_err = np.max(np.abs(y_true - y_pred))
+                slope, intercept, r_val, p_val, std_err = stats.linregress(y_true, y_pred)
+                r2 = r_val**2
+                
+                metrics_data.append({
+                    "Method": m,
+                    "MAE": mae,
+                    "RMSE": rmse,
+                    "MaxError": max_err,
+                    "R2": r2
+                })
+            
+            if metrics_data:
+                metrics_df = pd.DataFrame(metrics_data)
+                
+                # Normalization for Radar Chart (0 to 1 scale, where 1 is BEST)
+                # For Errors: Best is 0. So score = 1 - (val - min) / (max - min) OR just simple (Max_Observed - val) / (Max_Observed - Min_Observed)
+                # Let's use a simpler approach: Relative Score = (Worst - Current) / (Worst - Best)
+                # If Best == Worst, score = 1.
+                
+                df_norm = metrics_df.copy()
+                cols_to_invert = ["MAE", "RMSE", "MaxError"]
+                
+                for col in cols_to_invert:
+                    min_val = metrics_df[col].min()
+                    max_val = metrics_df[col].max()
+                    if max_val != min_val:
+                        df_norm[col] = (max_val - metrics_df[col]) / (max_val - min_val)
+                    else:
+                        df_norm[col] = 1.0 # All equal
+                
+                # For R2: Best is 1. Score = (val - Min) / (Max - Min)
+                min_r2 = metrics_df["R2"].min()
+                max_r2 = metrics_df["R2"].max()
+                if max_r2 != min_r2:
+                    df_norm["R2"] = (metrics_df["R2"] - min_r2) / (max_r2 - min_r2)
+                else:
+                    df_norm["R2"] = 1.0
+
+                # Plot Radar
+                fig = go.Figure()
+                categories = ["MAE (Accuracy)", "RMSE (Robustness)", "MaxError (Worst Case)", "R2 (Correlation)"]
+                
+                for i, row in df_norm.iterrows():
+                    values = [row["MAE"], row["RMSE"], row["MaxError"], row["R2"]]
+                    # Close the loop
+                    values += [values[0]]
+                    cats_closed = categories + [categories[0]]
+                    
+                    # Tooltip text (Show RAW values)
+                    raw_row = metrics_df.iloc[i]
+                    hover_txt = (f"Method: {row['Method']}<br>" +
+                                 f"MAE: {raw_row['MAE']:.2f}<br>" +
+                                 f"RMSE: {raw_row['RMSE']:.2f}<br>" +
+                                 f"MaxErr: {raw_row['MaxError']:.2f}<br>" +
+                                 f"R2: {raw_row['R2']:.4f}")
+                    
+                    fig.add_trace(go.Scatterpolar(
+                        r=values,
+                        theta=cats_closed,
+                        fill='toself',
+                        name=row['Method'],
+                        hovertext=hover_txt,
+                        hoverinfo="text"
+                    ))
+                
+                fig.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 1.05], showticklabels=False)
+                    ),
+                    showlegend=True,
+                    title=f"多维性能评估雷达图 (vs {benchmark_method})",
+                    height=650,
+                    template=selected_theme
+                )
+                st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
+                
+                # Show raw metrics table
+                st.markdown("#### 📄 详细指标数据")
+                st.dataframe(metrics_df.style.format("{:.3f}"), use_container_width=True)
+
 
     # E. Geometry Analysis (Bond)
     elif "过渡态几何分析" in selected_nav and has_bond:
