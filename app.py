@@ -28,14 +28,41 @@ PLOT_CONFIG = {
 # --- 2. Helper Functions ---
 
 def load_data(file):
-    """Universal data loader for Excel and CSV."""
+    """Universal data loader with robust column normalization."""
     if file is None:
         return None
     try:
+        # 1. Load Data based on extension
         if file.name.endswith('.csv'):
-            return pd.read_csv(file)
+            df = pd.read_csv(file)
         else:
-            return pd.read_excel(file)
+            df = pd.read_excel(file)
+        
+        # 2. Robust Column Normalization
+        if df.empty:
+            return None
+
+        # Fix: Reset index if the file read set the identifier as index
+        # (Though read_excel/csv usually default to RangeIndex unless specified)
+        if df.index.name == 'System':
+            df = df.reset_index()
+
+        # Fix: Force rename the FIRST column to 'System' (Case-insensitive safety)
+        # This handles cases where user's first column is "Molecule", "Ref", "Unnamed: 0", etc.
+        cols = list(df.columns)
+        if cols:
+            cols[0] = 'System'
+            df.columns = cols
+        
+        # Fix: Strip whitespace from all column headers (e.g. " B3LYP " -> "B3LYP")
+        df.columns = df.columns.str.strip()
+        
+        # Fix: Ensure 'System' column is strictly String type to prevent merge issues
+        if 'System' in df.columns:
+            df['System'] = df['System'].astype(str)
+
+        return df
+
     except Exception as e:
         st.error(f"文件读取失败: {e}")
         return None
@@ -95,6 +122,7 @@ def main():
             df = load_data(f_energy)
             if df is not None:
                 st.session_state['energy_data'] = df
+                st.success("能垒数据已加载")
 
         # 2. RMSD Data
         f_rmsd = st.file_uploader("2. RMSD 数据 (可选)", type=['xlsx', 'csv'])
@@ -102,6 +130,7 @@ def main():
             df = load_data(f_rmsd)
             if df is not None:
                 st.session_state['rmsd_data'] = df
+                st.success("RMSD 数据已加载")
 
     # Global State Check
     df_energy = st.session_state.get('energy_data')
@@ -125,13 +154,18 @@ def main():
     # --- Pre-processing & Global Selectors ---
     
     # Get numeric columns (methods)
+    # Filter out System column to get method names
     methods = [c for c in df_energy.columns if c != "System"]
     
     with st.sidebar:
         st.divider()
         st.header("⚙️ 全局设置")
-        benchmark_method = st.selectbox("选择基准方法 (Benchmark)", methods, index=0)
-        plot_methods = [m for m in methods if m != benchmark_method]
+        if methods:
+            benchmark_method = st.selectbox("选择基准方法 (Benchmark)", methods, index=0)
+            plot_methods = [m for m in methods if m != benchmark_method]
+        else:
+            st.error("无法识别方法列。请检查数据格式。")
+            return
         
         st.divider()
         st.caption("Auto-merged on 'System' column")
@@ -183,7 +217,10 @@ def main():
         with col2:
             st.markdown("##### 🌡️ 模块 2: 符号误差热力图 (高估 vs 低估)")
             # Determine symmetric range for colorbar centered at 0
-            max_val = max(abs(df_signed_error.max().max()), abs(df_signed_error.min().min()))
+            if not df_signed_error.empty:
+                max_val = max(abs(df_signed_error.max().max()), abs(df_signed_error.min().min()))
+            else:
+                max_val = 1
             
             fig_heat_err = go.Figure(data=go.Heatmap(
                 z=df_signed_error.values,
@@ -240,7 +277,9 @@ def main():
                 # Calculate Relative Energy
                 df_rel = df_energy.copy()
                 for col in methods:
-                    df_rel[col] = df_rel[col] - ref_vals[col]
+                    # Align indices or use direct subtraction
+                    # Ensure numeric subtraction
+                    df_rel[col] = df_rel[col] - float(ref_vals[col])
                 
                 # Melt for Grouped Bar
                 df_melt = df_rel.melt(id_vars="System", value_vars=methods, var_name="Method", value_name="RelEnergy")
@@ -397,6 +436,7 @@ def main():
             df_energy_long = df_energy.melt(id_vars="System", var_name="Method", value_name="Energy")
             
             # Melt RMSD to Long Format
+            # IMPORTANT: Ensure columns are consistent. 'load_data' enforces 'System' col name.
             df_rmsd_long = df_rmsd.melt(id_vars="System", var_name="Method", value_name="RMSD")
             
             # Merge on System and Method
@@ -419,19 +459,23 @@ def main():
                 df_rmsd_pivot = df_rmsd.set_index("System")
                 # Filter to only methods present in energy data for consistency
                 common_methods = [m for m in df_rmsd_pivot.columns if m in methods]
-                df_rmsd_pivot = df_rmsd_pivot[common_methods]
+                
+                if not common_methods:
+                    st.warning("RMSD 数据中未找到与能垒数据匹配的方法列。")
+                else:
+                    df_rmsd_pivot = df_rmsd_pivot[common_methods]
 
-                fig_rmsd_heat = go.Figure(data=go.Heatmap(
-                    z=df_rmsd_pivot.values,
-                    x=df_rmsd_pivot.columns,
-                    y=df_rmsd_pivot.index,
-                    colorscale='Blues',
-                    text=[[f"{val:.3f}" for val in row] for row in df_rmsd_pivot.values],
-                    texttemplate="%{text}",
-                    colorbar=dict(title="RMSD (Å)")
-                ))
-                fig_rmsd_heat.update_layout(template="plotly_white", height=500)
-                st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
+                    fig_rmsd_heat = go.Figure(data=go.Heatmap(
+                        z=df_rmsd_pivot.values,
+                        x=df_rmsd_pivot.columns,
+                        y=df_rmsd_pivot.index,
+                        colorscale='Blues',
+                        text=[[f"{val:.3f}" for val in row] for row in df_rmsd_pivot.values],
+                        texttemplate="%{text}",
+                        colorbar=dict(title="RMSD (Å)")
+                    ))
+                    fig_rmsd_heat.update_layout(template="plotly_white", height=500)
+                    st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
 
                 # Module 9: Structure-Energy Error Attribution
                 st.markdown("##### 🩺 模块 9: 结构-能量误差归因图 (RMSD vs Energy Error)")
@@ -450,8 +494,9 @@ def main():
                 fig_struct.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
                 
                 # Add quadrants or guidelines
-                max_rmsd = df_plot_struct["RMSD"].max()
-                max_err = df_plot_struct["AbsError"].max()
+                if not df_plot_struct.empty:
+                    max_rmsd = df_plot_struct["RMSD"].max()
+                    max_err = df_plot_struct["AbsError"].max()
                 
                 fig_struct.update_layout(
                     height=700,
