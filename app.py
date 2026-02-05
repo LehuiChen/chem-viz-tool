@@ -14,16 +14,16 @@ st.set_page_config(
 )
 
 # High-Definition Export Configuration (Mandatory)
-# Updated to High-Res PNG as requested
+# Updated to 16:9 Aspect Ratio and High-Res PNG
 PLOT_CONFIG = {
     'toImageButtonOptions': {
         'format': 'png',          # 强制使用 PNG 格式
         'filename': 'chem_viz_plot',
-        'height': 1000,           # 基础高度
-        'width': 1200,            # 基础宽度
-        'scale': 4                # 关键参数：4倍缩放，生成约 4800x4000 像素的超清大图
+        'height': 900,            # 基础高度
+        'width': 1600,            # 基础宽度 (16:9 宽屏)
+        'scale': 3                # 3倍缩放，生成约 4800x2700 像素的高清图，兼顾清晰度与文件大小
     },
-    'displaylogo': False          # 隐藏 Plotly logo 让图片更干净
+    'displaylogo': False          # 隐藏 Plotly logo
 }
 
 # --- 2. Helper Functions ---
@@ -44,21 +44,19 @@ def load_data(file):
             return None
 
         # Fix: Reset index if the file read set the identifier as index
-        # (Though read_excel/csv usually default to RangeIndex unless specified)
         if df.index.name == 'System':
             df = df.reset_index()
 
-        # Fix: Force rename the FIRST column to 'System' (Case-insensitive safety)
-        # This handles cases where user's first column is "Molecule", "Ref", "Unnamed: 0", etc.
+        # Fix: Force rename the FIRST column to 'System'
         cols = list(df.columns)
         if cols:
             cols[0] = 'System'
             df.columns = cols
         
-        # Fix: Strip whitespace from all column headers (e.g. " B3LYP " -> "B3LYP")
+        # Fix: Strip whitespace from all column headers
         df.columns = df.columns.str.strip()
         
-        # Fix: Ensure 'System' column is strictly String type to prevent merge issues
+        # Fix: Ensure 'System' column is strictly String type
         if 'System' in df.columns:
             df['System'] = df['System'].astype(str)
 
@@ -94,9 +92,6 @@ def generate_sample_rmsd():
     data["M06-2X"] = np.random.gamma(2, 0.1, len(systems)) 
     data["B3LYP"] = np.random.gamma(3, 0.15, len(systems)) # Larger structural dev
     data["wB97X-D"] = np.random.gamma(1, 0.05, len(systems)) # Small structural dev
-    # CCSD(T) is usually the ref geometry, so RMSD might be 0 or N/A, 
-    # but for visualization sake let's assume these are DFT methods vs Benchmark.
-    # To allow correlation, we need common columns.
     data["CCSD(T)"] = [0.0] * len(systems) # Reference geometry
     
     return pd.DataFrame(data).round(3)
@@ -155,7 +150,6 @@ def main():
     # --- Pre-processing & Global Selectors ---
     
     # Get numeric columns (methods)
-    # Filter out System column to get method names
     methods = [c for c in df_energy.columns if c != "System"]
     
     with st.sidebar:
@@ -211,13 +205,22 @@ def main():
                     pointpos=-1.8
                 ))
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
-            fig_box.update_layout(yaxis_title="Absolute Error (kcal/mol)", template="plotly_white")
+            
+            # Update Layout with Large Fonts
+            fig_box.update_layout(
+                title=dict(text="Absolute Error Distribution", font=dict(size=32)),
+                yaxis_title="Absolute Error (kcal/mol)",
+                font=dict(family="Arial", size=24, color="black"), # Global
+                xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                yaxis=dict(title_font=dict(size=28), tickfont=dict(size=22)),
+                legend=dict(font=dict(size=22)),
+                template="plotly_white"
+            )
             st.plotly_chart(fig_box, use_container_width=True, config=PLOT_CONFIG)
 
         # Module 2: Signed Error Heatmap
         with col2:
             st.markdown("##### 🌡️ 模块 2: 符号误差热力图 (高估 vs 低估)")
-            # Determine symmetric range for colorbar centered at 0
             if not df_signed_error.empty:
                 max_val = max(abs(df_signed_error.max().max()), abs(df_signed_error.min().min()))
             else:
@@ -227,7 +230,7 @@ def main():
                 z=df_signed_error.values,
                 x=df_signed_error.columns,
                 y=df_signed_error.index,
-                colorscale='RdBu_r', # Red=Positive(Over), Blue=Negative(Under)
+                colorscale='RdBu_r', 
                 zmin=-max_val,
                 zmax=max_val,
                 zmid=0,
@@ -235,7 +238,15 @@ def main():
                 texttemplate="%{text}",
                 colorbar=dict(title="Error")
             ))
-            fig_heat_err.update_layout(template="plotly_white")
+            
+            # Update Layout with Large Fonts
+            fig_heat_err.update_layout(
+                title=dict(text="Signed Error Heatmap", font=dict(size=32)),
+                font=dict(family="Arial", size=24, color="black"),
+                xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                template="plotly_white"
+            )
             st.plotly_chart(fig_heat_err, use_container_width=True, config=PLOT_CONFIG)
             st.caption("🔴 红色 = 高估 (Error > 0) | 🔵 蓝色 = 低估 (Error < 0)")
 
@@ -249,9 +260,18 @@ def main():
             colorscale='YlOrRd',
             text=[[f"{val:.1f}" for val in row] for row in df_heatmap_energy.values],
             texttemplate="%{text}",
-            colorbar=dict(title="Ea (kcal/mol)")
+            colorbar=dict(title="Ea")
         ))
-        fig_heat_raw.update_layout(height=500, template="plotly_white")
+        
+        # Update Layout with Large Fonts
+        fig_heat_raw.update_layout(
+            height=600,
+            title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
+            font=dict(family="Arial", size=24, color="black"),
+            xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            template="plotly_white"
+        )
         st.plotly_chart(fig_heat_raw, use_container_width=True, config=PLOT_CONFIG)
 
     # =========================================================
@@ -260,13 +280,10 @@ def main():
     with tabs[1]:
         st.subheader("2. 化学规律探索 (Chemical Trends)")
 
-        # --- Module B: Benchmark-Sorted Trend Plot (New Feature) ---
+        # --- Module B: Benchmark-Sorted Trend Plot ---
         st.markdown("##### 📈 模块 B: 基准排序趋势图 (Benchmark-Sorted Trend)")
         
-        # Sort Dataframe by Benchmark Method
         df_sorted = df_energy.sort_values(by=benchmark_method)
-        
-        # Melt for plotting
         df_sorted_melt = df_sorted.melt(id_vars="System", value_vars=methods, var_name="Method", value_name="Energy")
         
         fig_trend = px.line(
@@ -275,22 +292,23 @@ def main():
             y="Energy",
             color="Method",
             markers=True,
-            template="plotly_white",
-            labels={"Energy": "Energy (kcal/mol)"}
+            template="plotly_white"
         )
         
-        # Highlight Benchmark Line
-        fig_trend.update_traces(line=dict(width=1.5), opacity=0.7) # Dim others slightly
-        # Re-assert benchmark style (bold)
-        # We need to iterate traces to find the benchmark one because px assigns colors automatically
-        fig_trend.update_traces(selector=dict(name=benchmark_method), line=dict(width=4, dash='solid'), opacity=1.0)
+        fig_trend.update_traces(line=dict(width=3), marker=dict(size=8), opacity=0.7)
+        fig_trend.update_traces(selector=dict(name=benchmark_method), line=dict(width=6, dash='solid'), opacity=1.0)
 
+        # Update Layout with Large Fonts
         fig_trend.update_layout(
-            title=f"Energy Trend (Sorted by {benchmark_method})",
-            xaxis_title="System (Sorted by Benchmark Energy)"
+            title=dict(text=f"Energy Trend (Sorted by {benchmark_method})", font=dict(size=32)),
+            xaxis_title="System",
+            yaxis_title="Energy (kcal/mol)",
+            font=dict(family="Arial", size=24, color="black"),
+            xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            legend=dict(font=dict(size=22))
         )
         st.plotly_chart(fig_trend, use_container_width=True, config=PLOT_CONFIG)
-        st.caption(f"*此图按基准 {benchmark_method} 能垒从小到大排序。理想情况下，其他方法的曲线应单调上升。如果某方法的曲线出现剧烈震荡或交叉，说明该方法判断反应相对难易程度的趋势有误。*")
 
         st.divider()
         
@@ -307,16 +325,11 @@ def main():
         with col_viz:
             ref_row = df_energy[df_energy["System"] == ref_sys]
             if not ref_row.empty:
-                ref_vals = ref_row.iloc[0, 1:] # Skip System col
-                
-                # Calculate Relative Energy
+                ref_vals = ref_row.iloc[0, 1:] 
                 df_rel = df_energy.copy()
                 for col in methods:
-                    # Align indices or use direct subtraction
-                    # Ensure numeric subtraction
                     df_rel[col] = df_rel[col] - float(ref_vals[col])
                 
-                # Melt for Grouped Bar
                 df_melt = df_rel.melt(id_vars="System", value_vars=methods, var_name="Method", value_name="RelEnergy")
                 
                 fig_bar = px.bar(
@@ -327,10 +340,16 @@ def main():
                     barmode="group",
                     template="plotly_white"
                 )
-                fig_bar.add_hline(y=0, line_width=1, line_color="black")
+                fig_bar.add_hline(y=0, line_width=2, line_color="black")
+                
+                # Update Layout with Large Fonts
                 fig_bar.update_layout(
+                    title=dict(text=f"Relative Barrier Heights (vs {ref_sys})", font=dict(size=32)),
                     yaxis_title="ΔΔE (kcal/mol)",
-                    title=f"Relative Barrier Heights (vs {ref_sys})"
+                    font=dict(family="Arial", size=24, color="black"),
+                    xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                    yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                    legend=dict(font=dict(size=22))
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config=PLOT_CONFIG)
 
@@ -340,10 +359,9 @@ def main():
     with tabs[2]:
         st.subheader("3. 方法学评估 (Methodology Assessment)")
 
-        # --- Module A: Inter-method Correlation Heatmap (New Feature) ---
+        # --- Module A: Inter-method Correlation Heatmap ---
         st.markdown("##### 🌡️ 模块 A: 方法间相关性热力图 (Pearson Correlation)")
         
-        # Calculate Correlation Matrix
         corr_matrix = df_energy[methods].corr().round(2)
         
         fig_corr_heat = px.imshow(
@@ -352,12 +370,16 @@ def main():
             color_continuous_scale='RdBu_r',
             zmin=-1,
             zmax=1,
-            labels=dict(x="Method", y="Method", color="Pearson R"),
             template="plotly_white"
         )
+        
+        # Update Layout with Large Fonts
         fig_corr_heat.update_layout(
-            title="Correlation Matrix (Pearson R)",
-            height=600
+            height=700,
+            title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
+            font=dict(family="Arial", size=24, color="black"),
+            xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28))
         )
         st.plotly_chart(fig_corr_heat, use_container_width=True, config=PLOT_CONFIG)
 
@@ -378,21 +400,26 @@ def main():
             
             fig_corr = px.scatter(
                 x=x_data, y=y_data, 
-                labels={'x': f"Benchmark ({benchmark_method})", 'y': target_method},
                 template="plotly_white",
                 hover_data=[df_energy["System"]]
             )
-            # y=x line
             min_v = min(x_data.min(), y_data.min())
             max_v = max(x_data.max(), y_data.max())
             fig_corr.add_shape(type="line", x0=min_v, x1=max_v, y0=min_v, y1=max_v, line=dict(dash='dash', color='gray'))
-            # Trend line
+            
             line_x = np.array([min_v, max_v])
             line_y = slope * line_x + intercept
-            fig_corr.add_trace(go.Scatter(x=line_x, y=line_y, mode='lines', name='Fit', line=dict(color='red')))
+            fig_corr.add_trace(go.Scatter(x=line_x, y=line_y, mode='lines', name='Fit', line=dict(color='red', width=3)))
             
+            # Update Layout with Large Fonts
             fig_corr.update_layout(
-                title=f"R² = {r2:.4f} | MAE = {np.mean(np.abs(x_data - y_data)):.2f}"
+                title=dict(text=f"R² = {r2:.4f} | MAE = {np.mean(np.abs(x_data - y_data)):.2f}", font=dict(size=32)),
+                xaxis_title=f"Benchmark ({benchmark_method})",
+                yaxis_title=target_method,
+                font=dict(family="Arial", size=24, color="black"),
+                xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                legend=dict(font=dict(size=22))
             )
             st.plotly_chart(fig_corr, use_container_width=True, config=PLOT_CONFIG)
 
@@ -406,13 +433,22 @@ def main():
             
             fig_ba = px.scatter(
                 x=mean_vals, y=diff_vals,
-                labels={'x': 'Mean Energy', 'y': 'Difference (Target - Bench)'},
                 template="plotly_white",
                 hover_data=[df_energy["System"]]
             )
             fig_ba.add_hline(y=md, line_color="black", annotation_text="Mean")
             fig_ba.add_hline(y=md + 1.96*sd, line_dash="dash", line_color="red", annotation_text="+1.96 SD")
             fig_ba.add_hline(y=md - 1.96*sd, line_dash="dash", line_color="red", annotation_text="-1.96 SD")
+            
+            # Update Layout with Large Fonts
+            fig_ba.update_layout(
+                title=dict(text="Bland-Altman Plot", font=dict(size=32)),
+                xaxis_title="Mean Energy",
+                yaxis_title="Difference (Target - Bench)",
+                font=dict(family="Arial", size=24, color="black"),
+                xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28))
+            )
             st.plotly_chart(fig_ba, use_container_width=True, config=PLOT_CONFIG)
 
         # Module 7: Radar Chart
@@ -422,7 +458,6 @@ def main():
         for m in plot_methods:
             y_true = df_energy[benchmark_method]
             y_pred = df_energy[m]
-            
             metrics.append({
                 "Method": m,
                 "MAE": np.mean(np.abs(y_true - y_pred)),
@@ -432,47 +467,38 @@ def main():
             })
         
         df_metrics = pd.DataFrame(metrics)
-        
-        # Normalization (0-1) where 1 is BEST
-        # For Errors: 1 - normalized_value (so smaller error -> higher score)
-        # For R2: normalized_value (higher R2 -> higher score)
         df_norm = df_metrics.copy()
-        
         for col in ["MAE", "RMSE", "MaxError"]:
             mn, mx = df_metrics[col].min(), df_metrics[col].max()
-            if mx != mn:
-                df_norm[col] = (mx - df_metrics[col]) / (mx - mn) # Invert
-            else:
-                df_norm[col] = 1.0
+            if mx != mn: df_norm[col] = (mx - df_metrics[col]) / (mx - mn)
+            else: df_norm[col] = 1.0
 
         mn_r2, mx_r2 = df_metrics["R2"].min(), df_metrics["R2"].max()
-        if mx_r2 != mn_r2:
-            df_norm["R2"] = (df_metrics["R2"] - mn_r2) / (mx_r2 - mn_r2)
-        else:
-            df_norm["R2"] = 1.0
+        if mx_r2 != mn_r2: df_norm["R2"] = (df_metrics["R2"] - mn_r2) / (mx_r2 - mn_r2)
+        else: df_norm["R2"] = 1.0
 
         fig_radar = go.Figure()
         categories = ["MAE", "RMSE", "MaxError", "R2"]
         
         for i, row in df_norm.iterrows():
             vals = [row[c] for c in categories]
-            vals += [vals[0]] # Close loop
-            
-            # Create hover text with raw values
-            raw_row = df_metrics.iloc[i]
-            hover_txt = "<br>".join([f"{c}: {raw_row[c]:.3f}" for c in categories])
-            
+            vals += [vals[0]]
             fig_radar.add_trace(go.Scatterpolar(
                 r=vals, theta=categories + [categories[0]],
                 name=row["Method"],
-                fill='toself',
-                hovertext=f"<b>{row['Method']}</b><br>{hover_txt}",
-                hoverinfo="text"
+                fill='toself'
             ))
 
+        # Update Layout with Large Fonts (Radar uses Polar)
         fig_radar.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 1.05], showticklabels=False)),
-            title="综合性能评分 (面积越大越好)",
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, 1.05], showticklabels=False),
+                # Increase size of labels on the radar
+                angularaxis=dict(tickfont=dict(size=24))
+            ),
+            title=dict(text="Comprehensive Performance Score", font=dict(size=32)),
+            font=dict(family="Arial", size=24, color="black"),
+            legend=dict(font=dict(size=22)),
             template="plotly_white"
         )
         st.plotly_chart(fig_radar, use_container_width=True, config=PLOT_CONFIG)
@@ -489,40 +515,27 @@ def main():
         if df_rmsd is None:
             st.warning("⚠️ 此功能需要同时上传 RMSD 数据。请在侧边栏上传或加载演示数据。")
         else:
-            # 1. Data Merging Strategy
-            # Melt Energy to Long Format
             df_energy_long = df_energy.melt(id_vars="System", var_name="Method", value_name="Energy")
-            
-            # Melt RMSD to Long Format
-            # IMPORTANT: Ensure columns are consistent. 'load_data' enforces 'System' col name.
             df_rmsd_long = df_rmsd.melt(id_vars="System", var_name="Method", value_name="RMSD")
-            
-            # Merge on System and Method
             df_merged = pd.merge(df_energy_long, df_rmsd_long, on=["System", "Method"], how="inner")
             
             if df_merged.empty:
                 st.error("合并失败：能垒数据和 RMSD 数据没有共同的 System 或 Method 名称。")
             else:
-                # Calculate Absolute Error for each row
-                # We need to map the benchmark energy to each system
                 bench_map = df_energy.set_index("System")[benchmark_method].to_dict()
                 df_merged["Bench_Energy"] = df_merged["System"].map(bench_map)
                 df_merged["AbsError"] = (df_merged["Energy"] - df_merged["Bench_Energy"]).abs()
-                
-                # Filter out the benchmark method itself (usually RMSD=0, Error=0) or keep it for ref
                 df_plot_struct = df_merged[df_merged["Method"] != benchmark_method]
 
                 # Module 8: RMSD Heatmap
                 st.markdown("##### 🧱 模块 8: RMSD 概览热力图")
                 df_rmsd_pivot = df_rmsd.set_index("System")
-                # Filter to only methods present in energy data for consistency
                 common_methods = [m for m in df_rmsd_pivot.columns if m in methods]
                 
                 if not common_methods:
                     st.warning("RMSD 数据中未找到与能垒数据匹配的方法列。")
                 else:
                     df_rmsd_pivot = df_rmsd_pivot[common_methods]
-
                     fig_rmsd_heat = go.Figure(data=go.Heatmap(
                         z=df_rmsd_pivot.values,
                         x=df_rmsd_pivot.columns,
@@ -532,7 +545,16 @@ def main():
                         texttemplate="%{text}",
                         colorbar=dict(title="RMSD (Å)")
                     ))
-                    fig_rmsd_heat.update_layout(template="plotly_white", height=500)
+                    
+                    # Update Layout with Large Fonts
+                    fig_rmsd_heat.update_layout(
+                        height=600,
+                        title=dict(text="RMSD Heatmap", font=dict(size=32)),
+                        font=dict(family="Arial", size=24, color="black"),
+                        xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                        yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                        template="plotly_white"
+                    )
                     st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
 
                 # Module 9: Structure-Energy Error Attribution
@@ -545,33 +567,30 @@ def main():
                     color="Method",
                     hover_data=["System"],
                     symbol="Method",
-                    template="plotly_white",
-                    labels={"RMSD": "RMSD (Å)", "AbsError": "Absolute Energy Error (kcal/mol)"}
+                    template="plotly_white"
                 )
                 
-                fig_struct.update_traces(marker=dict(size=12, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
+                fig_struct.update_traces(marker=dict(size=15, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
                 
-                # Add quadrants or guidelines
-                if not df_plot_struct.empty:
-                    max_rmsd = df_plot_struct["RMSD"].max()
-                    max_err = df_plot_struct["AbsError"].max()
-                
+                # Update Layout with Large Fonts
                 fig_struct.update_layout(
                     height=700,
-                    title=f"诊断图: 结构偏差 vs 能垒误差 (Benchmark: {benchmark_method})"
+                    title=dict(text="Structure vs Energy Error Diagnosis", font=dict(size=32)),
+                    xaxis_title="RMSD (Å)",
+                    yaxis_title="Absolute Energy Error (kcal/mol)",
+                    font=dict(family="Arial", size=24, color="black"),
+                    xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                    yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                    legend=dict(font=dict(size=22))
                 )
                 st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
 
-                # Scientific Interpretation
                 st.info("💡 **科学解读指南**")
                 st.markdown("""
                 > **如何分析此图？**
                 > * **↗️ 右上方 (High RMSD, High Error)**: **结构决定能量**。结构算歪了导致能量也不准。  
-                >   *建议：检查构象搜索是否充分，或该泛函对过渡态几何优化能力较差。*
                 > * **↖️ 左上方 (Low RMSD, High Error)**: **电子相关效应主导**。结构很准但能量算错。  
-                >   *建议：结构没问题，是泛函本身估算能量的能力不足（如色散缺失、自相互作用误差）。*
                 > * **↙️ 左下方 (Low RMSD, Low Error)**: **完美预测区**。  
-                >   *该方法在结构和能量上都表现优异。*
                 """)
 
 if __name__ == "__main__":
