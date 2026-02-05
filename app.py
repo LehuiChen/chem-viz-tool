@@ -520,8 +520,16 @@ def main():
         if df_rmsd is None:
             st.warning("⚠️ 此功能需要同时上传 RMSD 数据。请在侧边栏上传或加载演示数据。")
         else:
+            # --- Robust Data Merging (Fix for missing data points) ---
+            # 1. Clean 'System' column (Strip spaces, ensure string)
+            df_energy['System'] = df_energy['System'].astype(str).str.strip()
+            df_rmsd['System'] = df_rmsd['System'].astype(str).str.strip()
+
+            # 2. Melt and Merge
             df_energy_long = df_energy.melt(id_vars="System", var_name="Method", value_name="Energy")
             df_rmsd_long = df_rmsd.melt(id_vars="System", var_name="Method", value_name="RMSD")
+            
+            # Use Inner Join to ensure valid pairs
             df_merged = pd.merge(df_energy_long, df_rmsd_long, on=["System", "Method"], how="inner")
             
             if df_merged.empty:
@@ -566,31 +574,37 @@ def main():
                 st.markdown("##### 🩺 模块 9: 结构-能量误差归因诊断图")
                 
                 # 1. Calculate Plot Boundaries (Force display of zones)
-                # Get data maximums
-                data_max_x = df_plot_struct["RMSD"].max()
-                data_max_y = df_plot_struct["AbsError"].max()
+                # Ensure even if data is small, the zones (Red/Yellow) are visible
+                data_max_x = df_plot_struct["RMSD"].max() if not df_plot_struct.empty else 0
+                data_max_y = df_plot_struct["AbsError"].max() if not df_plot_struct.empty else 0
                 
-                # Logic: Limit should be at least 1.5x the tolerance to show the boundary lines clearly
-                x_limit = max(data_max_x * 1.05, r_tol * 1.5)
-                y_limit = max(data_max_y * 1.05, e_tol * 1.5)
+                # Logic: Limit should be at least 1.5x the tolerance OR 1.1x the data max
+                x_limit = max(data_max_x * 1.1, r_tol * 1.5)
+                y_limit = max(data_max_y * 1.1, e_tol * 1.5)
 
-                # 2. Create Scatter Plot (No text labels, just clean dots)
+                # 2. Create Scatter Plot (Clean Visualization Strategy)
                 fig_struct = px.scatter(
                     df_plot_struct,
                     x="RMSD",
                     y="AbsError",
-                    color="Method",
-                    hover_data=["System"],
+                    color="Method",          # Color by Method
+                    hover_name="System",     # Show Name ON HOVER only
+                    hover_data={
+                        "RMSD": ":.3f", 
+                        "AbsError": ":.2f", 
+                        "System": False,
+                        "Method": True
+                    },
                     symbol="Method",
                     template="plotly_white",
-                    # text="Outlier_Label", # Removed text labels to reduce clutter
+                    # No text labels -> cleaner for large datasets
                     marginal_x="box",     # Marginal Box plot
                     marginal_y="box"      # Marginal Box plot
                 )
                 
                 # 3. Update Traces (Scatter specific styles)
                 fig_struct.update_traces(
-                    marker=dict(size=14, opacity=0.8, line=dict(width=1, color='White')),
+                    marker=dict(size=14, opacity=0.7, line=dict(width=1, color='White')),
                     selector=dict(type='scatter') # CRITICAL: Prevent ValueError on box plots
                 )
 
@@ -604,13 +618,14 @@ def main():
                 )
                 
                 # Zone 2: Electronic Error (Top Left) - Yellow
+                # Condition: Structure is good (Left), but Energy is bad (Top)
                 fig_struct.add_shape(
                     type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit,
                     fillcolor="gold", opacity=0.08, line_width=0, layer="below", row=1, col=1
                 )
                 
                 # Zone 3: Structural Failure (Right Side) - Red
-                # Covers everything where RMSD > r_tol
+                # Condition: RMSD > Tolerance (Right side)
                 fig_struct.add_shape(
                     type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit,
                     fillcolor="red", opacity=0.08, line_width=0, layer="below", row=1, col=1
