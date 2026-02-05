@@ -21,7 +21,7 @@ PLOT_CONFIG = {
         'filename': 'chem_viz_plot',
         'height': 900,            # 基础高度
         'width': 1600,            # 基础宽度 (16:9 宽屏)
-        'scale': 3                # 3倍缩放，生成约 4800x2700 像素的高清图，兼顾清晰度与文件大小
+        'scale': 3                # 3倍缩放，生成约 4800x2700 像素的高清图
     },
     'displaylogo': False          # 隐藏 Plotly logo
 }
@@ -512,6 +512,11 @@ def main():
     with tabs[3]:
         st.subheader("4. 结构-能量归因分析 (Structure-Energy Relationship)")
         
+        # --- Interactive Thresholds Sidebar ---
+        with st.sidebar.expander("4. 诊断图阈值设置 (Diagnosis Thresholds)", expanded=True):
+            e_tol = st.slider("Energy Tolerance (kcal/mol)", 0.1, 5.0, 1.0, step=0.1)
+            r_tol = st.slider("RMSD Tolerance (Å)", 0.01, 1.0, 0.1, step=0.01)
+
         if df_rmsd is None:
             st.warning("⚠️ 此功能需要同时上传 RMSD 数据。请在侧边栏上传或加载演示数据。")
         else:
@@ -526,6 +531,13 @@ def main():
                 df_merged["Bench_Energy"] = df_merged["System"].map(bench_map)
                 df_merged["AbsError"] = (df_merged["Energy"] - df_merged["Bench_Energy"]).abs()
                 df_plot_struct = df_merged[df_merged["Method"] != benchmark_method]
+
+                # --- Data Prep for Outlier Labeling ---
+                # Label only if AbsError > 2 * e_tol OR RMSD > 2 * r_tol
+                df_plot_struct['Outlier_Label'] = df_plot_struct.apply(
+                    lambda row: row['System'] if (row['AbsError'] > 2 * e_tol or row['RMSD'] > 2 * r_tol) else "", 
+                    axis=1
+                )
 
                 # Module 8: RMSD Heatmap
                 st.markdown("##### 🧱 模块 8: RMSD 概览热力图")
@@ -557,9 +569,10 @@ def main():
                     )
                     st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
 
-                # Module 9: Structure-Energy Error Attribution
-                st.markdown("##### 🩺 模块 9: 结构-能量误差归因图 (RMSD vs Energy Error)")
+                # --- Module 9: Structure-Energy Error Attribution (Major Upgrade) ---
+                st.markdown("##### 🩺 模块 9: 结构-能量误差归因诊断图")
                 
+                # Plot with Marginal Box Plots and Outlier Labels
                 fig_struct = px.scatter(
                     df_plot_struct,
                     x="RMSD",
@@ -567,31 +580,68 @@ def main():
                     color="Method",
                     hover_data=["System"],
                     symbol="Method",
-                    template="plotly_white"
+                    template="plotly_white",
+                    text="Outlier_Label", # Auto-label outliers
+                    marginal_x="box",     # Marginal Box plot
+                    marginal_y="box"      # Marginal Box plot
                 )
                 
-                fig_struct.update_traces(marker=dict(size=15, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')))
+                fig_struct.update_traces(
+                    marker=dict(size=12, opacity=0.8, line=dict(width=1, color='DarkSlateGrey')),
+                    textposition='top center'
+                )
+
+                # --- Background Zones (Diagnostic Regions) ---
+                # Determine plot bounds for shapes
+                max_x = df_plot_struct["RMSD"].max() * 1.15
+                max_y = df_plot_struct["AbsError"].max() * 1.15
+                # Avoid zero ranges
+                if max_x == 0: max_x = 1.0
+                if max_y == 0: max_y = 1.0
                 
-                # Update Layout with Large Fonts
+                # Zone 1: Safe Zone (Bottom Left) - Green
+                fig_struct.add_shape(
+                    type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol,
+                    fillcolor="green", opacity=0.08, line_width=0, layer="below", row=1, col=1
+                )
+                
+                # Zone 2: Electronic Error (Top Left) - Yellow
+                fig_struct.add_shape(
+                    type="rect", x0=0, x1=r_tol, y0=e_tol, y1=max_y,
+                    fillcolor="gold", opacity=0.08, line_width=0, layer="below", row=1, col=1
+                )
+                
+                # Zone 3: Structural Failure (Right Side) - Red
+                fig_struct.add_shape(
+                    type="rect", x0=r_tol, x1=max_x, y0=0, y1=max_y,
+                    fillcolor="red", opacity=0.08, line_width=0, layer="below", row=1, col=1
+                )
+
+                # --- Reference Lines ---
+                fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
+                fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="E Tol", annotation_position="top right")
+
+                # Update Layout with Large Fonts & Dimensions
                 fig_struct.update_layout(
-                    height=700,
-                    title=dict(text="Structure vs Energy Error Diagnosis", font=dict(size=32)),
+                    height=900, # Matches config
+                    title=dict(text=f"Diagnostic: Structure vs Energy (Benchmark: {benchmark_method})", font=dict(size=32)),
                     xaxis_title="RMSD (Å)",
                     yaxis_title="Absolute Energy Error (kcal/mol)",
                     font=dict(family="Arial", size=24, color="black"),
-                    xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-                    yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                    xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, max_x]), # Force range for shapes
+                    yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, max_y]), # Force range for shapes
                     legend=dict(font=dict(size=22))
                 )
                 st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
 
-                st.info("💡 **科学解读指南**")
-                st.markdown("""
-                > **如何分析此图？**
-                > * **↗️ 右上方 (High RMSD, High Error)**: **结构决定能量**。结构算歪了导致能量也不准。  
-                > * **↖️ 左上方 (Low RMSD, High Error)**: **电子相关效应主导**。结构很准但能量算错。  
-                > * **↙️ 左下方 (Low RMSD, Low Error)**: **完美预测区**。  
-                """)
+                # Scientific Interpretation (Contextual)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.success(f"**🟩 安全区 (Safe Zone)**\n\nRMSD < {r_tol} Å\nError < {e_tol} kcal/mol\n\n该方法预测准确。")
+                with c2:
+                    st.warning(f"**🟨 电子误差区 (Electronic)**\n\nRMSD < {r_tol} Å\nError > {e_tol} kcal/mol\n\n结构准确但能量偏差大 (泛函缺陷)。")
+                with c3:
+                    st.error(f"**🟥 结构失效区 (Structural)**\n\nRMSD > {r_tol} Å\n\n结构优化失败，导致能量不可信。")
 
 if __name__ == "__main__":
     main()
