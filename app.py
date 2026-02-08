@@ -61,7 +61,7 @@ def load_data(file):
 
 def generate_sample_energy():
     """Generates sample Energy data (kcal/mol)."""
-    systems = [f"TS_{str(i).zfill(2)}" for i in range(1, 16)]
+    systems = [f"TS-C{i}-{sub}" for i, sub in enumerate(['Me', 'Et', 'iPr', 'tBu', 'Ph', 'F', 'Cl', 'Br', 'CN', 'NO2', 'OMe', 'DA', 'H', 'CF3', 'CO2Me'], 1)]
     base = np.random.uniform(10, 30, size=len(systems))
     data = {"System": systems, "CCSD(T)": base}
     data["M06-2X"] = base + np.random.normal(0, 1.5, len(systems))
@@ -71,7 +71,7 @@ def generate_sample_energy():
 
 def generate_sample_rmsd():
     """Generates sample RMSD data (Angstrom)."""
-    systems = [f"TS_{str(i).zfill(2)}" for i in range(1, 16)]
+    systems = [f"TS-C{i}-{sub}" for i, sub in enumerate(['Me', 'Et', 'iPr', 'tBu', 'Ph', 'F', 'Cl', 'Br', 'CN', 'NO2', 'OMe', 'DA', 'H', 'CF3', 'CO2Me'], 1)]
     data = {"System": systems}
     data["M06-2X"] = np.random.gamma(2, 0.1, len(systems)) 
     data["B3LYP"] = np.random.gamma(3, 0.15, len(systems))
@@ -463,6 +463,10 @@ def main():
             df_rmsd_long = df_rmsd.melt(id_vars="System", var_name="Method", value_name="RMSD")
             df_merged = pd.merge(df_energy_long, df_rmsd_long, on=["System", "Method"], how="inner")
             
+            # --- 1. Substituent Extraction (New) ---
+            # Extract the part after the last hyphen if it exists, otherwise use full name
+            df_merged['Substituent'] = df_merged['System'].apply(lambda x: x.split('-')[-1] if '-' in x else x)
+
             if df_merged.empty:
                 st.error("合并失败：能垒数据和 RMSD 数据没有共同的 System 或 Method 名称。")
             else:
@@ -500,62 +504,113 @@ def main():
 
                 st.markdown("##### 🩺 模块 9: 结构-能量误差归因诊断图")
                 
+                # Global limits calculation (Applicable to both tabs)
                 data_max_x = df_plot_struct["RMSD"].max() if not df_plot_struct.empty else 0
                 data_max_y = df_plot_struct["AbsError"].max() if not df_plot_struct.empty else 0
                 x_limit = max(data_max_x * 1.1, r_tol * 1.5)
                 y_limit = max(data_max_y * 1.1, e_tol * 1.5)
 
-                fig_struct = px.scatter(
-                    df_plot_struct,
-                    x="RMSD",
-                    y="AbsError",
-                    color="Method",
-                    hover_name="System",
-                    hover_data={
-                        "RMSD": ":.3f", 
-                        "AbsError": ":.2f", 
-                        "System": False,
-                        "Method": True
-                    },
-                    symbol="Method",
-                    template="plotly_white"
-                )
-                
-                fig_struct.update_traces(
-                    marker=dict(size=14, opacity=0.7, line=dict(width=1, color='White')),
-                    selector=dict(type='scatter') 
-                )
+                # --- Tabs Layout (New) ---
+                tab_global, tab_single = st.tabs(["📊 全局总览 (All Methods)", "🔍 分方法诊断 (Single Method)"])
 
-                fig_struct.add_shape(
-                    type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol,
-                    fillcolor="green", opacity=0.08, line_width=0, layer="below", row=1, col=1
-                )
-                
-                fig_struct.add_shape(
-                    type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit,
-                    fillcolor="gold", opacity=0.08, line_width=0, layer="below", row=1, col=1
-                )
-                
-                fig_struct.add_shape(
-                    type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit,
-                    fillcolor="red", opacity=0.08, line_width=0, layer="below", row=1, col=1
-                )
+                # --- Tab 1: Global Overview ---
+                with tab_global:
+                    fig_struct = px.scatter(
+                        df_plot_struct,
+                        x="RMSD",
+                        y="AbsError",
+                        color="Method",
+                        hover_name="System",
+                        hover_data={
+                            "RMSD": ":.3f", 
+                            "AbsError": ":.2f", 
+                            "System": False,
+                            "Method": True,
+                            "Substituent": True
+                        },
+                        symbol="Method",
+                        template="plotly_white"
+                    )
+                    
+                    fig_struct.update_traces(
+                        marker=dict(size=14, opacity=0.7, line=dict(width=1, color='White')),
+                        selector=dict(type='scatter') 
+                    )
 
-                fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
-                fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="E Tol", annotation_position="top right")
+                    # Background Zones
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.08, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.08, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.08, line_width=0, layer="below")
 
-                fig_struct.update_layout(
-                    height=900,
-                    width=1600,
-                    title=dict(text=f"Diagnostic: Structure vs Energy (Benchmark: {benchmark_method})", font=dict(size=32)),
-                    xaxis_title="RMSD (Å)",
-                    yaxis_title="Absolute Energy Error (kcal/mol)",
-                    font=dict(family="Arial", size=24, color="black"),
-                    xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, x_limit], showgrid=True), 
-                    yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, y_limit], showgrid=True),
-                    legend=dict(font=dict(size=22))
-                )
-                st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
+                    # Lines
+                    fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
+                    fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="E Tol", annotation_position="top right")
+
+                    fig_struct.update_layout(
+                        height=900,
+                        width=1600,
+                        title=dict(text=f"Structure-Energy Overview (Benchmark: {benchmark_method})", font=dict(size=32)),
+                        xaxis_title="RMSD (Å)",
+                        yaxis_title="Absolute Energy Error (kcal/mol)",
+                        font=dict(family="Arial", size=24, color="black"),
+                        xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, x_limit], showgrid=True), 
+                        yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, y_limit], showgrid=True),
+                        legend=dict(font=dict(size=22))
+                    )
+                    st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
+                
+                # --- Tab 2: Single Method Diagnostics (New) ---
+                with tab_single:
+                    st.info("💡 下图按 **'基团 (Substituent)'** 着色，帮助发现针对特定化学结构的系统性偏差。")
+                    
+                    unique_methods = df_plot_struct['Method'].unique()
+                    
+                    for m in unique_methods:
+                        st.markdown(f"### 🔹 Method: {m}")
+                        subset = df_plot_struct[df_plot_struct['Method'] == m]
+                        
+                        if subset.empty:
+                            continue
+
+                        fig_single = px.scatter(
+                            subset,
+                            x="RMSD",
+                            y="AbsError",
+                            color="Substituent",  # Key Feature: Color by chemical group
+                            text="System",        # Key Feature: Show labels directly
+                            title=f"Diagnostic: {m} (Colored by Substituent)",
+                            hover_data=["System", "AbsError", "RMSD"],
+                            template="plotly_white"
+                        )
+
+                        # Enhance visibility
+                        fig_single.update_traces(
+                            textposition='top center', 
+                            marker=dict(size=14, opacity=0.9, line=dict(width=1, color='White'))
+                        )
+
+                        # Background Zones (Must retain for consistency)
+                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.08, line_width=0, layer="below")
+                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.08, line_width=0, layer="below")
+                        fig_single.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.08, line_width=0, layer="below")
+
+                        # Lines
+                        fig_single.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2)
+                        fig_single.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2)
+
+                        # Layout (Locked axes)
+                        fig_single.update_layout(
+                            height=800,
+                            width=1600,
+                            xaxis_title="RMSD (Å)",
+                            yaxis_title="Absolute Energy Error (kcal/mol)",
+                            font=dict(family="Arial", size=24, color="black"),
+                            xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, x_limit], showgrid=True), 
+                            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, y_limit], showgrid=True),
+                            legend=dict(font=dict(size=22), title=dict(text="Group"))
+                        )
+                        st.plotly_chart(fig_single, use_container_width=True, config=PLOT_CONFIG)
+                        st.divider()
 
                 c1, c2, c3 = st.columns(3)
                 with c1:
