@@ -61,7 +61,18 @@ def load_data(file):
 
 def generate_sample_energy():
     """Generates sample Energy data (kcal/mol)."""
-    systems = [f"TS-C{i}-{sub}" for i, sub in enumerate(['Me', 'Et', 'iPr', 'tBu', 'Ph', 'F', 'Cl', 'Br', 'CN', 'NO2', 'OMe', 'DA', 'H', 'CF3', 'CO2Me'], 1)]
+    # Expanded sample data to include C1-C6 core types for demonstration
+    cores = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'DA']
+    subs = ['Me', 'Et', 'iPr', 'tBu', 'Ph', 'F', 'Cl', 'Br', 'CN', 'NO2', 'OMe', 'H', 'CF3', 'CO2Me']
+    systems = []
+    for c in cores:
+        for s in subs[:5]: # Take a few subs for each core
+            systems.append(f"TS-{c}-{s}")
+    
+    # Add some random ones
+    for i in range(10):
+        systems.append(f"Other-Sys-{i}")
+
     base = np.random.uniform(10, 30, size=len(systems))
     data = {"System": systems, "CCSD(T)": base}
     data["M06-2X"] = base + np.random.normal(0, 1.5, len(systems))
@@ -71,7 +82,10 @@ def generate_sample_energy():
 
 def generate_sample_rmsd():
     """Generates sample RMSD data (Angstrom)."""
-    systems = [f"TS-C{i}-{sub}" for i, sub in enumerate(['Me', 'Et', 'iPr', 'tBu', 'Ph', 'F', 'Cl', 'Br', 'CN', 'NO2', 'OMe', 'DA', 'H', 'CF3', 'CO2Me'], 1)]
+    # Must match systems from energy function
+    df_e = generate_sample_energy()
+    systems = df_e["System"].tolist()
+    
     data = {"System": systems}
     data["M06-2X"] = np.random.gamma(2, 0.1, len(systems)) 
     data["B3LYP"] = np.random.gamma(3, 0.15, len(systems))
@@ -463,26 +477,6 @@ def main():
             df_rmsd_long = df_rmsd.melt(id_vars="System", var_name="Method", value_name="RMSD")
             df_merged = pd.merge(df_energy_long, df_rmsd_long, on=["System", "Method"], how="inner")
             
-            # --- 1. Enhanced Data Preprocessing ---
-            # Extract Substituent
-            df_merged['Substituent'] = df_merged['System'].apply(lambda x: x.split('-')[-1] if '-' in x else x)
-
-            # Extract Core Type (C1 - C6)
-            def get_core_type(name):
-                # Reverse match to ensure C12 is not matched as C1 first if present (though loop order handles substring check)
-                for i in range(6, 0, -1):
-                    if f"C{i}" in name:
-                        return f"C{i}"
-                return "Other"
-            
-            df_merged['Core_Type'] = df_merged['System'].apply(get_core_type)
-
-            # Smart Labeling (Only label outliers)
-            def get_label(row):
-                if row['RMSD'] > r_tol or row['AbsError'] > e_tol:
-                    return row['System']
-                return ""
-            
             if df_merged.empty:
                 st.error("合并失败：能垒数据和 RMSD 数据没有共同的 System 或 Method 名称。")
             else:
@@ -490,11 +484,35 @@ def main():
                 df_merged["Bench_Energy"] = df_merged["System"].map(bench_map)
                 df_merged["AbsError"] = (df_merged["Energy"] - df_merged["Bench_Energy"]).abs()
                 
-                # Apply smart label logic after AbsError calculation
-                df_merged['Label'] = df_merged.apply(get_label, axis=1)
+                # --- 1. Enhanced Data Preprocessing (Aesthetic Logic) ---
+                
+                # 1.1 Substituent Extraction (For Color)
+                # Logic: Take the part after the last hyphen. If no hyphen, use full name.
+                df_merged['Substituent'] = df_merged['System'].apply(lambda x: x.split('-')[-1] if '-' in x else x)
 
+                # 1.2 Core Type Extraction (For Shape)
+                # Logic: Match C6 down to C1 to prevent C12 matching C1.
+                def get_core_type(name):
+                    for i in range(6, 0, -1):
+                        if f"C{i}" in name:
+                            return f"C{i}"
+                    return "Other"
+                
+                df_merged['Core_Type'] = df_merged['System'].apply(get_core_type)
+
+                # 1.3 Minimalist Labeling Strategy
+                # Logic: Label = System ONLY if (RMSD > r_tol OR AbsError > e_tol). Else None.
+                def get_smart_label(row):
+                    if row['RMSD'] > r_tol or row['AbsError'] > e_tol:
+                        return row['System']
+                    return None 
+                
+                df_merged['Label'] = df_merged.apply(get_smart_label, axis=1)
+
+                # Filter out benchmark for plotting
                 df_plot_struct = df_merged[df_merged["Method"] != benchmark_method]
 
+                # --- 2. Heatmap ---
                 st.markdown("##### 🧱 模块 8: RMSD 概览热力图")
                 df_rmsd_pivot = df_rmsd.set_index("System")
                 common_methods = [m for m in df_rmsd_pivot.columns if m in methods]
@@ -522,6 +540,7 @@ def main():
                     )
                     st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
 
+                # --- 3. Diagnostic Scatter Plots ---
                 st.markdown("##### 🩺 模块 9: 结构-能量误差归因诊断图")
                 
                 # Global limits calculation (Applicable to both tabs)
@@ -530,7 +549,7 @@ def main():
                 x_limit = max(data_max_x * 1.1, r_tol * 1.5)
                 y_limit = max(data_max_y * 1.1, e_tol * 1.5)
 
-                # Symbol Map for Core Types
+                # Symbol Map for Core Types (Explicit Mapping)
                 symbol_map_core = {
                     'C1': 'circle',
                     'C2': 'triangle-up',
@@ -558,9 +577,10 @@ def main():
                             "System": False,
                             "Method": True,
                             "Substituent": True,
-                            "Core_Type": True
+                            "Core_Type": True,
+                            "Label": False
                         },
-                        symbol="Method", # Keep Method symbols for global view distinction
+                        symbol="Method", # Global view uses Method symbols
                         template="plotly_white"
                     )
                     
@@ -569,10 +589,10 @@ def main():
                         selector=dict(type='scatter') 
                     )
 
-                    # Background Zones
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.08, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.08, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.08, line_width=0, layer="below")
+                    # Background Zones (Low Opacity)
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, layer="below")
 
                     # Lines
                     fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
@@ -591,9 +611,9 @@ def main():
                     )
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
-                # --- Tab 2: Single Method Diagnostics (Updated) ---
+                # --- Tab 2: Single Method Diagnostics (Aesthetic Refactor) ---
                 with tab_single:
-                    st.info("💡 符号形状代表 **'骨架类型 (Core Type)'** (六边形=C6, 五边形=C5...)，颜色代表 **'取代基 (Substituent)'**。仅标注超出阈值的离群点。")
+                    st.info("💡 **图例指南**: 形状 = **骨架 (C1-C6)** | 颜色 = **取代基 (Substituent)** | 标签 = **仅显示离群点**")
                     
                     unique_methods = df_plot_struct['Method'].unique()
                     
@@ -608,28 +628,33 @@ def main():
                             subset,
                             x="RMSD",
                             y="AbsError",
-                            color="Substituent",          # Color by chemical group
-                            symbol="Core_Type",           # NEW: Symbol by Core skeleton
-                            symbol_map=symbol_map_core,   # NEW: Custom shape map
-                            text="Label",                 # NEW: Smart labeling
-                            title=f"Diagnostic: {m} (Colored by Substituent, Shaped by Core)",
+                            color="Substituent",          # Color mapped to Substituent
+                            symbol="Core_Type",           # Shape mapped to Core Type
+                            symbol_map=symbol_map_core,   # Explicit shape map
+                            text="Label",                 # Minimalist Labels
+                            title=f"Diagnostic: {m}",
                             hover_data=["System", "AbsError", "RMSD", "Core_Type"],
-                            template="plotly_white"
+                            template="plotly_white",
+                            color_discrete_sequence=px.colors.qualitative.Dark24 # High contrast colors
                         )
 
-                        # Enhance visibility & Font
+                        # High-End Visuals: Size 18, Opacity 0.8, Borders
                         fig_single.update_traces(
                             textposition='top center',
-                            textfont=dict(size=12, color='black'),
-                            marker=dict(size=14, opacity=0.9, line=dict(width=1, color='White'))
+                            textfont=dict(size=11, color='black'),
+                            marker=dict(
+                                size=18, 
+                                opacity=0.8, 
+                                line=dict(width=1, color='DarkSlateGrey') # Crisp borders
+                            )
                         )
 
-                        # Background Zones (Must retain for consistency)
-                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.08, line_width=0, layer="below")
-                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.08, line_width=0, layer="below")
-                        fig_single.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.08, line_width=0, layer="below")
+                        # Background Zones (Very low opacity for clean look)
+                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, layer="below")
+                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, layer="below")
+                        fig_single.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, layer="below")
 
-                        # Lines
+                        # Threshold Lines
                         fig_single.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2)
                         fig_single.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2)
 
@@ -642,7 +667,7 @@ def main():
                             font=dict(family="Arial", size=24, color="black"),
                             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, x_limit], showgrid=True), 
                             yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, y_limit], showgrid=True),
-                            legend=dict(font=dict(size=22), title=dict(text="Legend"))
+                            legend=dict(font=dict(size=22), title=dict(text="Properties"))
                         )
                         st.plotly_chart(fig_single, use_container_width=True, config=PLOT_CONFIG)
                         st.divider()
