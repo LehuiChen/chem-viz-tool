@@ -18,8 +18,8 @@ PLOT_CONFIG = {
     'toImageButtonOptions': {
         'format': 'png',
         'filename': 'chem_viz_plot',
-        'height': 1000, # Optimized for publication
-        'width': 1400,
+        'height': 900,
+        'width': 1600,
         'scale': 3
     },
     'displaylogo': False
@@ -549,8 +549,20 @@ def main():
                 x_limit = max(data_max_x * 1.1, r_tol * 1.5)
                 y_limit = max(data_max_y * 1.1, e_tol * 1.5)
 
+                # Symbol Map (Re-introduced for visual consistency in large plots)
+                symbol_map_core = {
+                    'C1': 'circle',
+                    'C2': 'triangle-up',
+                    'C3': 'square',
+                    'C4': 'diamond',
+                    'C5': 'pentagon',
+                    'C6': 'hexagon',
+                    'DA': 'cross',
+                    'Other': 'star'
+                }
+
                 # --- Tabs Layout ---
-                tab_global, tab_single = st.tabs(["📊 全局总览 (All Methods)", "🔍 分方法诊断 (Single Method)"])
+                tab_global, tab_single = st.tabs(["📊 全局总览 (All Methods)", "🔍 分方法诊断 (Independent Large Plots)"])
 
                 # --- Tab 1: Global Overview ---
                 with tab_global:
@@ -600,86 +612,83 @@ def main():
                     )
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
-                # --- Tab 2: Single Method Diagnostics (Publication Grade Static Plots) ---
+                # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
                 with tab_single:
-                    st.info("💡 **Static Publication Mode**: Faceted grid with static outlier labels.")
+                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示，便于查看细节。")
                     
                     unique_methods = df_plot_struct['Method'].unique()
-                    
-                    # Force sort order for Core Types
                     core_order = ["C1", "C2", "C3", "C4", "C5", "C6", "DA", "Other"]
 
                     for m in unique_methods:
-                        st.markdown(f"### 🔹 Method: {m}")
-                        subset = df_plot_struct[df_plot_struct['Method'] == m].copy()
+                        st.markdown(f"## 🔹 方法: {m}")
+                        st.markdown("---")
                         
-                        if subset.empty:
-                            continue
-
-                        # 1. Static Label Logic
-                        # Create a specific column for static text where non-outliers are empty strings
-                        subset['Static_Label'] = subset.apply(
+                        # Filter for method
+                        method_subset = df_plot_struct[df_plot_struct['Method'] == m].copy()
+                        
+                        # Static Label: Logic for labels only on outliers
+                        method_subset['Static_Label'] = method_subset.apply(
                             lambda row: row['System'] if (row['RMSD'] > r_tol or row['AbsError'] > e_tol) else "", axis=1
                         )
 
-                        # 2. Faceted Plot
-                        fig_single = px.scatter(
-                            subset,
-                            x="RMSD",
-                            y="AbsError",
-                            color="Substituent",          
-                            facet_col="Core_Type",        # 1. Faceting: Split by Core Type
-                            facet_col_wrap=3,             # 2. Layout: 3 plots per row
-                            category_orders={"Core_Type": core_order}, # 3. Order: C1 to C6
-                            text="Static_Label",          # 4. Labels: Mapped to the static label column
-                            hover_data=["System", "AbsError", "RMSD"],
-                            template="plotly_white",
-                            color_discrete_sequence=px.colors.qualitative.Dark24,
-                            facet_row_spacing=0.1,
-                            facet_col_spacing=0.05
-                        )
+                        for core in core_order:
+                            # Filter for core type
+                            core_subset = method_subset[method_subset['Core_Type'] == core]
+                            
+                            if core_subset.empty:
+                                continue
 
-                        # 3. Visuals: Size 12, Opacity 0.8, Borders, Unified Circle Shape, Text settings
-                        fig_single.update_traces(
-                            mode='markers+text',
-                            textposition='top center',
-                            textfont=dict(size=10, color='black'),
-                            marker=dict(
-                                size=12, 
-                                opacity=0.8, 
-                                line=dict(width=1, color='DarkSlateGrey'),
-                                symbol='circle' # Unified shape since we have facets
+                            st.markdown(f"### 🧬 {core} 体系 ({m})")
+
+                            # Create individual figure (Full Size)
+                            fig_core = px.scatter(
+                                core_subset,
+                                x="RMSD",
+                                y="AbsError",
+                                color="Substituent",
+                                symbol="Core_Type",           # Keep symbol mapping for visual consistency
+                                symbol_map=symbol_map_core,
+                                text="Static_Label",
+                                hover_data=["System", "AbsError", "RMSD"],
+                                template="plotly_white",
+                                color_discrete_sequence=px.colors.qualitative.Dark24
                             )
-                        )
 
-                        # 4. Background Zones (Applied to ALL subplots via row="all", col="all")
-                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, row="all", col="all", layer="below")
-                        fig_single.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, row="all", col="all", layer="below")
-                        fig_single.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, row="all", col="all", layer="below")
+                            # Style traces: Large markers, large text
+                            fig_core.update_traces(
+                                mode='markers+text',
+                                textposition='top center',
+                                textfont=dict(size=14, color='black'),
+                                marker=dict(
+                                    size=18, 
+                                    opacity=0.8, 
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                )
+                            )
 
-                        # Threshold Lines (Applied to ALL subplots)
-                        fig_single.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, row="all", col="all")
-                        fig_single.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2, row="all", col="all")
+                            # Add Background Zones (Applicable to single plot)
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, layer="below")
 
-                        # 5. Layout: Publication dimensions and fonts
-                        fig_single.update_layout(
-                            height=1000, 
-                            width=1400,
-                            title=dict(text=f"Structure-Energy Attribution: {m}", font=dict(size=24)),
-                            font=dict(family="Arial", size=16, color="black"),
-                            legend=dict(font=dict(size=14), title=dict(text="Substituent")),
-                            margin=dict(t=100, b=100, l=100, r=100)
-                        )
+                            # Add Threshold Lines
+                            fig_core.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2)
+                            fig_core.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2)
+
+                            # Layout updates: Lock axes to global limits
+                            fig_core.update_layout(
+                                height=700, 
+                                width=1200,
+                                title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24)),
+                                font=dict(family="Arial", size=18, color="black"),
+                                legend=dict(font=dict(size=16), title=dict(text="Substituent")),
+                                xaxis=dict(title="RMSD (Å)", range=[0, x_limit], showgrid=True), 
+                                yaxis=dict(title="Abs. Error (kcal/mol)", range=[0, y_limit], showgrid=True)
+                            )
+
+                            st.plotly_chart(fig_core, use_container_width=True, config=PLOT_CONFIG)
                         
-                        # Update facet title font sizes
-                        fig_single.for_each_annotation(lambda a: a.update(font=dict(size=18)))
-                        
-                        # Explicitly set axes ranges and fonts
-                        fig_single.update_xaxes(title_font=dict(size=16), tickfont=dict(size=14), range=[0, x_limit], showgrid=True)
-                        fig_single.update_yaxes(title_font=dict(size=16), tickfont=dict(size=14), range=[0, y_limit], showgrid=True)
-
-                        st.plotly_chart(fig_single, use_container_width=False, config=PLOT_CONFIG) # Fixed width for export fidelity
-                        st.divider()
+                        st.divider() # Separator between methods
 
                 c1, c2, c3 = st.columns(3)
                 with c1:
