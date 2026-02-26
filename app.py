@@ -106,13 +106,15 @@ def apply_academic_style(fig):
     
     fig.update_layout(
         template="simple_white",
-        font=dict(family="Arial", size=16, color="black"),
-        margin=dict(l=60, r=40, t=60, b=60),
+        autosize=True,
+        font=dict(family="Arial", size=14, color="black"),
+        margin=dict(l=60, r=40, t=40, b=60),
         legend=dict(
             title_font_family="Arial",
-            font=dict(family="Arial", size=14),
+            font=dict(family="Arial", size=12),
             bordercolor="black",
-            borderwidth=1
+            borderwidth=1,
+            bgcolor="rgba(255,255,255,0.8)"
         )
     )
     fig.update_xaxes(**axes_style)
@@ -219,6 +221,7 @@ def main():
             fig_box.update_traces(marker=dict(line=dict(color='black', width=1)), line=dict(color='black', width=1.5))
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
+                height=500,
                 title=dict(text="Absolute Error Distribution", font=dict(size=32)),
                 yaxis_title="Absolute Error (kcal/mol)",
                 font=dict(family="Arial", size=24, color="black"),
@@ -252,6 +255,7 @@ def main():
             fig_heat_err = apply_academic_style(fig_heat_err)
             fig_heat_err.update_yaxes(scaleanchor="x", scaleratio=1)
             fig_heat_err.update_layout(
+                height=800,
                 title=dict(text="Signed Error Heatmap", font=dict(size=32)),
                 font=dict(family="Arial", size=24, color="black"),
                 xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
@@ -276,7 +280,7 @@ def main():
         fig_heat_raw = apply_academic_style(fig_heat_raw)
         fig_heat_raw.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_heat_raw.update_layout(
-            height=600,
+            height=800,
             title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
             font=dict(family="Arial", size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
@@ -382,7 +386,7 @@ def main():
         fig_corr_heat.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_corr_heat.update_layout(
             coloraxis_colorbar=dict(outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
-            height=700,
+            height=800,
             title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
             font=dict(family="Arial", size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
@@ -590,7 +594,7 @@ def main():
                     fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
                     fig_rmsd_heat.update_yaxes(scaleanchor="x", scaleratio=1)
                     fig_rmsd_heat.update_layout(
-                        height=600,
+                        height=800,
                         title=dict(text="RMSD Heatmap", font=dict(size=32)),
                         font=dict(family="Arial", size=24, color="black"),
                         xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
@@ -661,8 +665,7 @@ def main():
                     fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="E Tol", annotation_position="top right")
 
                     fig_struct.update_layout(
-                        height=900,
-                        width=1600,
+                        height=800,
                         title=dict(text=f"Structure-Energy Overview (Benchmark: {benchmark_method})", font=dict(size=24, family="Arial", color="black")),
                         xaxis_title="RMSD (Å)",
                         yaxis_title="Absolute Energy Error (kcal/mol)",
@@ -784,7 +787,6 @@ def main():
 
                             # Layout updates: Lock axes to global limits, Widescreen Canvas
                             fig_core.update_layout(
-                                width=1200, 
                                 height=700,
                                 autosize=False,
                                 title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24, family="Arial", color="black")),
