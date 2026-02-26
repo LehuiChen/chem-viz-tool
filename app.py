@@ -101,20 +101,23 @@ def apply_academic_style(fig):
         ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
         showgrid=False, zeroline=False,
         tickfont=dict(size=14, color='black', family='Arial'),
-        title_font=dict(size=18, family='Arial', color='black')
+        title_font=dict(size=18, family='Arial Black', color='black')
     )
     
     fig.update_layout(
         template="simple_white",
         autosize=True,
         font=dict(family="Arial", size=14, color="black"),
-        margin=dict(l=60, r=40, t=40, b=60),
+        margin=dict(l=60, r=40, t=60, b=60),
         legend=dict(
-            title_font_family="Arial",
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="center", x=0.5,
+            title_text="",
             font=dict(family="Arial", size=12),
-            bordercolor="black",
-            borderwidth=1,
-            bgcolor="rgba(255,255,255,0.8)"
+            bordercolor="white",
+            borderwidth=0,
+            bgcolor="rgba(0,0,0,0)"
         )
     )
     fig.update_xaxes(**axes_style)
@@ -214,10 +217,14 @@ def main():
                 y="Absolute_Energy_Error",
                 color="Method",
                 points="all",
-                color_discrete_sequence=px.colors.qualitative.Pastel
+                color_discrete_sequence=px.colors.qualitative.G10
             )
             fig_box = apply_academic_style(fig_box)
-            fig_box.update_traces(marker=dict(line=dict(color='black', width=1)))
+            fig_box.update_traces(
+                marker=dict(opacity=0.5, size=5, line=dict(width=0)),
+                jitter=0.4,
+                line=dict(color='black', width=1.5)
+            )
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
                 height=500,
@@ -252,12 +259,13 @@ def main():
                 colorbar=dict(title="Error", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
             ))
             fig_heat_err = apply_academic_style(fig_heat_err)
+            dynamic_height_err = max(500, len(df_signed_error.index) * 25)
             fig_heat_err.update_layout(
-                height=800,
+                height=dynamic_height_err,
                 title=dict(text="Signed Error Heatmap", font=dict(size=32)),
                 font=dict(family="Arial", size=24, color="black"),
                 xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-                yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
                 template="plotly_white"
             )
             st.plotly_chart(fig_heat_err, use_container_width=True, config=PLOT_CONFIG)
@@ -276,12 +284,13 @@ def main():
             colorbar=dict(title="Ea", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
         ))
         fig_heat_raw = apply_academic_style(fig_heat_raw)
+        dynamic_height_raw = max(500, len(df_heatmap_energy.index) * 25)
         fig_heat_raw.update_layout(
-            height=800,
+            height=dynamic_height_raw,
             title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
             font=dict(family="Arial", size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
             template="plotly_white"
         )
         st.plotly_chart(fig_heat_raw, use_container_width=True, config=PLOT_CONFIG)
@@ -303,7 +312,7 @@ def main():
             color="Method",
             markers=True,
             template="plotly_white",
-            color_discrete_sequence=px.colors.qualitative.Safe
+            color_discrete_sequence=px.colors.qualitative.G10
         )
         fig_trend = apply_academic_style(fig_trend)
         fig_trend.update_traces(line=dict(width=3), marker=dict(size=8), opacity=0.7)
@@ -346,7 +355,7 @@ def main():
                     color="Method", 
                     barmode="group",
                     template="plotly_white",
-                    color_discrete_sequence=px.colors.qualitative.Safe
+                    color_discrete_sequence=px.colors.qualitative.G10
                 )
                 fig_bar = apply_academic_style(fig_bar)
                 fig_bar.update_traces(marker_line_color='black', marker_line_width=1.5)
@@ -380,13 +389,14 @@ def main():
         )
         fig_corr_heat = apply_academic_style(fig_corr_heat)
         fig_corr_heat.update_traces(xgap=2, ygap=2)
+        dynamic_height_corr = max(500, len(corr_matrix.index) * 25)
         fig_corr_heat.update_layout(
             coloraxis_colorbar=dict(outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
-            height=800,
+            height=dynamic_height_corr,
             title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
             font=dict(family="Arial", size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28))
+            yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1)
         )
         st.plotly_chart(fig_corr_heat, use_container_width=True, config=PLOT_CONFIG)
 
@@ -406,7 +416,7 @@ def main():
                 x=x_data, y=y_data, 
                 template="plotly_white",
                 hover_data=[df_energy["System"]],
-                color_discrete_sequence=px.colors.qualitative.Set1
+                color_discrete_sequence=px.colors.qualitative.G10
             )
             fig_corr = apply_academic_style(fig_corr)
             fig_corr.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
@@ -440,7 +450,7 @@ def main():
                 x=mean_vals, y=diff_vals,
                 template="plotly_white",
                 hover_data=[df_energy["System"]],
-                color_discrete_sequence=px.colors.qualitative.Set1
+                color_discrete_sequence=px.colors.qualitative.G10
             )
             fig_ba = apply_academic_style(fig_ba)
             fig_ba.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
@@ -484,7 +494,7 @@ def main():
 
         fig_radar = go.Figure()
         fig_radar = apply_academic_style(fig_radar)
-        fig_radar.update_layout(colorway=px.colors.qualitative.Safe)
+        fig_radar.update_layout(colorway=px.colors.qualitative.G10)
         categories = ["MAE", "RMSE", "MaxError", "R2"]
         
         for i, row in df_norm.iterrows():
@@ -588,12 +598,13 @@ def main():
                         colorbar=dict(title="RMSD (Å)", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
                     ))
                     fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
+                    dynamic_height_rmsd = max(500, len(df_rmsd_pivot.index) * 25)
                     fig_rmsd_heat.update_layout(
-                        height=800,
+                        height=dynamic_height_rmsd,
                         title=dict(text="RMSD Heatmap", font=dict(size=32)),
                         font=dict(family="Arial", size=24, color="black"),
                         xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-                        yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
+                        yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
                         template="plotly_white"
                     )
                     st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
@@ -641,7 +652,7 @@ def main():
                         },
                         symbol="Method", # Global view uses Method symbols
                         template="simple_white",
-                        color_discrete_sequence=px.colors.qualitative.Safe
+                        color_discrete_sequence=px.colors.qualitative.G10
                     )
                     fig_struct = apply_academic_style(fig_struct)
                     
@@ -741,7 +752,7 @@ def main():
                                 text="Stat_Label",            # Use new NND labels
                                 hover_data=["System", "AbsError", "RMSD"],
                                 template="simple_white",
-                                color_discrete_sequence=px.colors.qualitative.Safe
+                                color_discrete_sequence=px.colors.qualitative.G10
                             )
                             fig_core = apply_academic_style(fig_core)
 
