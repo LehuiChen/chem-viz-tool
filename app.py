@@ -618,7 +618,7 @@ def main():
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
                 with tab_single:
-                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **4% 绝对排斥半径**，智能识别孤立离群点，避免密集标注。")
+                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **8% 绝对排斥半径**，智能识别孤立离群点，避免密集标注。")
                     
                     all_figures = [] # Initialize list for export
                     
@@ -648,7 +648,7 @@ def main():
 
                             st.markdown(f"### 🧬 {core} 体系 ({m})")
                             
-                            # --- Bulletproof Labeling (4% Repulsion) ---
+                            # --- Bulletproof Labeling (8% Repulsion) ---
                             plot_data['Stat_Label'] = None
 
                             if len(plot_data) > 1:
@@ -665,8 +665,8 @@ def main():
                                 min_dists = dists.min(axis=1)
 
                                 # 4. 严格条件：
-                                # 条件A：视觉上极度孤立 (离最近的邻居都超过画布范围的 4%)
-                                is_isolated = min_dists > 0.04 
+                                # 条件A：视觉上极度孤立 (离最近的邻居都超过画布范围的 8%)
+                                is_isolated = min_dists > 0.08 
                                 # 条件B：不在安全区
                                 is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
 
@@ -725,10 +725,12 @@ def main():
                             fig_core.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2)
                             fig_core.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2)
 
-                            # Layout updates: Lock axes to global limits, Square Canvas
+                            # Layout updates: Lock axes to global limits, Widescreen Canvas
                             fig_core.update_layout(
-                                height=900, 
-                                width=1000,
+                                width=1200, 
+                                height=700,
+                                autosize=False,
+                                margin=dict(l=50, r=50, t=80, b=50),
                                 title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24)),
                                 font=dict(family="Arial", size=18, color="black"),
                                 legend=dict(font=dict(size=16), title=dict(text="Substituent")),
