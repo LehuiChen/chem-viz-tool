@@ -207,6 +207,7 @@ def main():
             st.markdown("##### 📦 模块 1: 绝对误差分布")
             fig_box = go.Figure()
             fig_box = apply_academic_style(fig_box)
+            fig_box.update_layout(colorway=px.colors.qualitative.Safe)
             for m in plot_methods:
                 fig_box.add_trace(go.Box(
                     y=df_abs_error[m], 
@@ -215,6 +216,7 @@ def main():
                     jitter=0.3,
                     pointpos=-1.8
                 ))
+            fig_box.update_traces(marker=dict(line=dict(color='black', width=1)), line=dict(color='black', width=1.5))
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
                 title=dict(text="Absolute Error Distribution", font=dict(size=32)),
@@ -242,11 +244,13 @@ def main():
                 zmin=-max_val,
                 zmax=max_val,
                 zmid=0,
+                xgap=2, ygap=2,
                 text=[[f"{val:+.2f}" for val in row] for row in df_signed_error.values],
                 texttemplate="%{text}",
-                colorbar=dict(title="Error")
+                colorbar=dict(title="Error", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
             ))
             fig_heat_err = apply_academic_style(fig_heat_err)
+            fig_heat_err.update_yaxes(scaleanchor="x", scaleratio=1)
             fig_heat_err.update_layout(
                 title=dict(text="Signed Error Heatmap", font=dict(size=32)),
                 font=dict(family="Arial", size=24, color="black"),
@@ -264,11 +268,13 @@ def main():
             x=df_heatmap_energy.columns,
             y=df_heatmap_energy.index,
             colorscale='YlOrRd',
+            xgap=2, ygap=2,
             text=[[f"{val:.1f}" for val in row] for row in df_heatmap_energy.values],
             texttemplate="%{text}",
-            colorbar=dict(title="Ea")
+            colorbar=dict(title="Ea", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
         ))
         fig_heat_raw = apply_academic_style(fig_heat_raw)
+        fig_heat_raw.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_heat_raw.update_layout(
             height=600,
             title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
@@ -295,7 +301,8 @@ def main():
             y="Energy",
             color="Method",
             markers=True,
-            template="plotly_white"
+            template="plotly_white",
+            color_discrete_sequence=px.colors.qualitative.Safe
         )
         fig_trend = apply_academic_style(fig_trend)
         fig_trend.update_traces(line=dict(width=3), marker=dict(size=8), opacity=0.7)
@@ -337,9 +344,11 @@ def main():
                     y="RelEnergy", 
                     color="Method", 
                     barmode="group",
-                    template="plotly_white"
+                    template="plotly_white",
+                    color_discrete_sequence=px.colors.qualitative.Safe
                 )
                 fig_bar = apply_academic_style(fig_bar)
+                fig_bar.update_traces(marker_line_color='black', marker_line_width=1.5)
                 fig_bar.add_hline(y=0, line_width=2, line_color="black")
                 fig_bar.update_layout(
                     title=dict(text=f"Relative Barrier Heights (vs {ref_sys})", font=dict(size=32)),
@@ -363,12 +372,16 @@ def main():
             corr_matrix,
             text_auto=True,
             color_continuous_scale='RdBu_r',
+            color_continuous_midpoint=0,
             zmin=-1,
             zmax=1,
             template="plotly_white"
         )
         fig_corr_heat = apply_academic_style(fig_corr_heat)
+        fig_corr_heat.update_traces(xgap=2, ygap=2)
+        fig_corr_heat.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_corr_heat.update_layout(
+            coloraxis_colorbar=dict(outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
             height=700,
             title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
             font=dict(family="Arial", size=24, color="black"),
@@ -392,9 +405,11 @@ def main():
             fig_corr = px.scatter(
                 x=x_data, y=y_data, 
                 template="plotly_white",
-                hover_data=[df_energy["System"]]
+                hover_data=[df_energy["System"]],
+                color_discrete_sequence=["DarkSlateGray"]
             )
             fig_corr = apply_academic_style(fig_corr)
+            fig_corr.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
             min_v = min(x_data.min(), y_data.min())
             max_v = max(x_data.max(), y_data.max())
             fig_corr.add_shape(type="line", x0=min_v, x1=max_v, y0=min_v, y1=max_v, line=dict(dash='dash', color='gray'))
@@ -424,9 +439,11 @@ def main():
             fig_ba = px.scatter(
                 x=mean_vals, y=diff_vals,
                 template="plotly_white",
-                hover_data=[df_energy["System"]]
+                hover_data=[df_energy["System"]],
+                color_discrete_sequence=["DarkSlateGray"]
             )
             fig_ba = apply_academic_style(fig_ba)
+            fig_ba.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
             fig_ba.add_hline(y=md, line_color="black", annotation_text="Mean")
             fig_ba.add_hline(y=md + 1.96*sd, line_dash="dash", line_color="red", annotation_text="+1.96 SD")
             fig_ba.add_hline(y=md - 1.96*sd, line_dash="dash", line_color="red", annotation_text="-1.96 SD")
@@ -467,6 +484,7 @@ def main():
 
         fig_radar = go.Figure()
         fig_radar = apply_academic_style(fig_radar)
+        fig_radar.update_layout(colorway=px.colors.qualitative.Safe)
         categories = ["MAE", "RMSE", "MaxError", "R2"]
         
         for i, row in df_norm.iterrows():
@@ -564,11 +582,13 @@ def main():
                         x=df_rmsd_pivot.columns,
                         y=df_rmsd_pivot.index,
                         colorscale='Blues',
+                        xgap=2, ygap=2,
                         text=[[f"{val:.3f}" for val in row] for row in df_rmsd_pivot.values],
                         texttemplate="%{text}",
-                        colorbar=dict(title="RMSD (Å)")
+                        colorbar=dict(title="RMSD (Å)", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
                     ))
                     fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
+                    fig_rmsd_heat.update_yaxes(scaleanchor="x", scaleratio=1)
                     fig_rmsd_heat.update_layout(
                         height=600,
                         title=dict(text="RMSD Heatmap", font=dict(size=32)),
@@ -632,9 +652,9 @@ def main():
                     )
 
                     # Background Zones (Low Opacity)
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.15, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.15, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.15, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.30, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.30, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.30, line_width=0, layer="below")
 
                     # Lines
                     fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
@@ -754,9 +774,9 @@ def main():
                                 ))
 
                             # Add Background Zones (Applicable to single plot)
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.15, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.15, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.15, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.30, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.30, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.30, line_width=0, layer="below")
 
                             # Add Threshold Lines
                             fig_core.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2)
