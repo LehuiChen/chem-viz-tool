@@ -586,34 +586,49 @@ def main():
                             "Label": False
                         },
                         symbol="Method", # Global view uses Method symbols
-                        template="plotly_white"
+                        template="simple_white",
+                        color_discrete_sequence=px.colors.qualitative.Safe
                     )
                     
                     fig_struct.update_traces(
-                        marker=dict(size=14, opacity=0.7, line=dict(width=1, color='White')),
+                        marker=dict(size=14, opacity=0.8, line=dict(width=1, color='black')),
                         selector=dict(type='scatter') 
                     )
 
                     # Background Zones (Low Opacity)
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.08, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.08, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.08, line_width=0, layer="below")
 
                     # Lines
-                    fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
-                    fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2, annotation_text="E Tol", annotation_position="top right")
+                    fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
+                    fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="E Tol", annotation_position="top right")
+
+                    axes_style = dict(
+                        showline=True, linewidth=2, linecolor='black', mirror=True,
+                        ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
+                        showgrid=False, zeroline=False,
+                        tickfont=dict(size=14, color='black', family='Arial'),
+                        title_font=dict(size=18, family='Arial', color='black')
+                    )
 
                     fig_struct.update_layout(
                         height=900,
                         width=1600,
-                        title=dict(text=f"Structure-Energy Overview (Benchmark: {benchmark_method})", font=dict(size=32)),
+                        title=dict(text=f"Structure-Energy Overview (Benchmark: {benchmark_method})", font=dict(size=24, family="Arial", color="black")),
                         xaxis_title="RMSD (Å)",
                         yaxis_title="Absolute Energy Error (kcal/mol)",
-                        font=dict(family="Arial", size=24, color="black"),
-                        xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, x_limit], showgrid=True), 
-                        yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), range=[0, y_limit], showgrid=True),
-                        legend=dict(font=dict(size=22))
+                        font=dict(family="Arial", size=16, color="black"),
+                        legend=dict(
+                            title_font_family="Arial",
+                            font=dict(family="Arial", size=14),
+                            bordercolor="black",
+                            borderwidth=1
+                        ),
+                        margin=dict(l=60, r=40, t=60, b=60)
                     )
+                    fig_struct.update_xaxes(range=[0, x_limit], **axes_style)
+                    fig_struct.update_yaxes(range=[0, y_limit], **axes_style)
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
@@ -677,7 +692,7 @@ def main():
                                 is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
                                 plot_data.loc[is_bad, 'Stat_Label'] = plot_data.loc[is_bad, 'System']
 
-                            # Create individual figure (Square Ratio)
+                            # Create individual figure
                             fig_core = px.scatter(
                                 plot_data,
                                 x="RMSD",
@@ -687,19 +702,19 @@ def main():
                                 symbol_map=symbol_map_core,
                                 text="Stat_Label",            # Use new NND labels
                                 hover_data=["System", "AbsError", "RMSD"],
-                                template="plotly_white",
-                                color_discrete_sequence=px.colors.qualitative.Dark24
+                                template="simple_white",
+                                color_discrete_sequence=px.colors.qualitative.Safe
                             )
 
-                            # Style traces: Size 10
+                            # Style traces: Size 12
                             fig_core.update_traces(
                                 mode='markers+text',
                                 textposition='top center',
-                                textfont=dict(size=14, color='black'),
+                                textfont=dict(size=14, color='black', family='Arial'),
                                 marker=dict(
-                                    size=10, 
+                                    size=12, 
                                     opacity=0.8, 
-                                    line=dict(width=1, color='DarkSlateGrey')
+                                    line=dict(width=1, color='black')
                                 )
                             )
                             
@@ -712,31 +727,46 @@ def main():
                                     name=f'Anchor ({anchor_sys})',
                                     text=[anchor_sys],
                                     textposition='top center',
-                                    marker=dict(symbol='star', size=14, color='black', line=dict(width=1, color='white')),
+                                    textfont=dict(size=14, color='black', family='Arial'),
+                                    marker=dict(symbol='star', size=16, color='black', line=dict(width=1, color='black')),
                                     showlegend=True
                                 ))
 
                             # Add Background Zones (Applicable to single plot)
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="green", opacity=0.1, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="gold", opacity=0.1, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="red", opacity=0.1, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.08, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.08, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.08, line_width=0, layer="below")
 
                             # Add Threshold Lines
-                            fig_core.add_vline(x=r_tol, line_dash="dash", line_color="gray", line_width=2)
-                            fig_core.add_hline(y=e_tol, line_dash="dash", line_color="gray", line_width=2)
+                            fig_core.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2)
+                            fig_core.add_hline(y=e_tol, line_dash="dash", line_color="black", line_width=2)
+
+                            axes_style = dict(
+                                showline=True, linewidth=2, linecolor='black', mirror=True,
+                                ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
+                                showgrid=False, zeroline=False,
+                                tickfont=dict(size=14, color='black', family='Arial'),
+                                title_font=dict(size=18, family='Arial', color='black')
+                            )
 
                             # Layout updates: Lock axes to global limits, Widescreen Canvas
                             fig_core.update_layout(
                                 width=1200, 
                                 height=700,
                                 autosize=False,
-                                margin=dict(l=50, r=50, t=80, b=50),
-                                title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24)),
-                                font=dict(family="Arial", size=18, color="black"),
-                                legend=dict(font=dict(size=16), title=dict(text="Substituent")),
-                                xaxis=dict(title="RMSD (Å)", range=[0, x_limit], showgrid=True), 
-                                yaxis=dict(title="Abs. Error (kcal/mol)", range=[0, y_limit], showgrid=True)
+                                margin=dict(l=60, r=40, t=60, b=60),
+                                title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24, family="Arial", color="black")),
+                                font=dict(family="Arial", size=16, color="black"),
+                                legend=dict(
+                                    title_font_family="Arial",
+                                    font=dict(family="Arial", size=14),
+                                    bordercolor="black",
+                                    borderwidth=1,
+                                    title=dict(text="Substituent")
+                                )
                             )
+                            fig_core.update_xaxes(title="RMSD (Å)", range=[0, x_limit], **axes_style)
+                            fig_core.update_yaxes(title="Abs. Error (kcal/mol)", range=[0, y_limit], **axes_style)
 
                             st.plotly_chart(fig_core, use_container_width=True, config=PLOT_CONFIG)
                             all_figures.append(fig_core)
