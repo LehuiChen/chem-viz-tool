@@ -207,18 +207,17 @@ def main():
 
         with col1:
             st.markdown("##### 📦 模块 1: 绝对误差分布")
-            fig_box = go.Figure()
+            df_abs_error_melt = df_abs_error.reset_index().melt(id_vars="System", var_name="Method", value_name="Absolute_Energy_Error")
+            fig_box = px.box(
+                df_abs_error_melt,
+                x="Method",
+                y="Absolute_Energy_Error",
+                color="Method",
+                points="all",
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
             fig_box = apply_academic_style(fig_box)
-            fig_box.update_layout(colorway=px.colors.qualitative.Safe)
-            for m in plot_methods:
-                fig_box.add_trace(go.Box(
-                    y=df_abs_error[m], 
-                    name=m, 
-                    boxpoints='all', 
-                    jitter=0.3,
-                    pointpos=-1.8
-                ))
-            fig_box.update_traces(marker=dict(line=dict(color='black', width=1)), line=dict(color='black', width=1.5))
+            fig_box.update_traces(marker=dict(line=dict(color='black', width=1)))
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
                 height=500,
@@ -253,7 +252,6 @@ def main():
                 colorbar=dict(title="Error", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
             ))
             fig_heat_err = apply_academic_style(fig_heat_err)
-            fig_heat_err.update_yaxes(scaleanchor="x", scaleratio=1)
             fig_heat_err.update_layout(
                 height=800,
                 title=dict(text="Signed Error Heatmap", font=dict(size=32)),
@@ -278,7 +276,6 @@ def main():
             colorbar=dict(title="Ea", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
         ))
         fig_heat_raw = apply_academic_style(fig_heat_raw)
-        fig_heat_raw.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_heat_raw.update_layout(
             height=800,
             title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
@@ -383,7 +380,6 @@ def main():
         )
         fig_corr_heat = apply_academic_style(fig_corr_heat)
         fig_corr_heat.update_traces(xgap=2, ygap=2)
-        fig_corr_heat.update_yaxes(scaleanchor="x", scaleratio=1)
         fig_corr_heat.update_layout(
             coloraxis_colorbar=dict(outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
             height=800,
@@ -410,7 +406,7 @@ def main():
                 x=x_data, y=y_data, 
                 template="plotly_white",
                 hover_data=[df_energy["System"]],
-                color_discrete_sequence=["DarkSlateGray"]
+                color_discrete_sequence=px.colors.qualitative.Set1
             )
             fig_corr = apply_academic_style(fig_corr)
             fig_corr.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
@@ -444,7 +440,7 @@ def main():
                 x=mean_vals, y=diff_vals,
                 template="plotly_white",
                 hover_data=[df_energy["System"]],
-                color_discrete_sequence=["DarkSlateGray"]
+                color_discrete_sequence=px.colors.qualitative.Set1
             )
             fig_ba = apply_academic_style(fig_ba)
             fig_ba.update_traces(marker=dict(size=10, opacity=0.8, line=dict(width=1, color='black')))
@@ -592,7 +588,6 @@ def main():
                         colorbar=dict(title="RMSD (Å)", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
                     ))
                     fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
-                    fig_rmsd_heat.update_yaxes(scaleanchor="x", scaleratio=1)
                     fig_rmsd_heat.update_layout(
                         height=800,
                         title=dict(text="RMSD Heatmap", font=dict(size=32)),
