@@ -94,6 +94,31 @@ def generate_sample_rmsd():
     data["CCSD(T)"] = [0.0] * len(systems)
     return pd.DataFrame(data).round(3)
 
+def apply_academic_style(fig):
+    """Applies Nature/Science publication-level aesthetics to a Plotly figure."""
+    axes_style = dict(
+        showline=True, linewidth=2, linecolor='black', mirror=True,
+        ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
+        showgrid=False, zeroline=False,
+        tickfont=dict(size=14, color='black', family='Arial'),
+        title_font=dict(size=18, family='Arial', color='black')
+    )
+    
+    fig.update_layout(
+        template="simple_white",
+        font=dict(family="Arial", size=16, color="black"),
+        margin=dict(l=60, r=40, t=60, b=60),
+        legend=dict(
+            title_font_family="Arial",
+            font=dict(family="Arial", size=14),
+            bordercolor="black",
+            borderwidth=1
+        )
+    )
+    fig.update_xaxes(**axes_style)
+    fig.update_yaxes(**axes_style)
+    return fig
+
 # --- 3. Main Application ---
 
 def main():
@@ -181,6 +206,7 @@ def main():
         with col1:
             st.markdown("##### 📦 模块 1: 绝对误差分布")
             fig_box = go.Figure()
+            fig_box = apply_academic_style(fig_box)
             for m in plot_methods:
                 fig_box.add_trace(go.Box(
                     y=df_abs_error[m], 
@@ -220,6 +246,7 @@ def main():
                 texttemplate="%{text}",
                 colorbar=dict(title="Error")
             ))
+            fig_heat_err = apply_academic_style(fig_heat_err)
             fig_heat_err.update_layout(
                 title=dict(text="Signed Error Heatmap", font=dict(size=32)),
                 font=dict(family="Arial", size=24, color="black"),
@@ -241,6 +268,7 @@ def main():
             texttemplate="%{text}",
             colorbar=dict(title="Ea")
         ))
+        fig_heat_raw = apply_academic_style(fig_heat_raw)
         fig_heat_raw.update_layout(
             height=600,
             title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
@@ -269,6 +297,7 @@ def main():
             markers=True,
             template="plotly_white"
         )
+        fig_trend = apply_academic_style(fig_trend)
         fig_trend.update_traces(line=dict(width=3), marker=dict(size=8), opacity=0.7)
         fig_trend.update_traces(selector=dict(name=benchmark_method), line=dict(width=6, dash='solid'), opacity=1.0)
         fig_trend.update_layout(
@@ -310,6 +339,7 @@ def main():
                     barmode="group",
                     template="plotly_white"
                 )
+                fig_bar = apply_academic_style(fig_bar)
                 fig_bar.add_hline(y=0, line_width=2, line_color="black")
                 fig_bar.update_layout(
                     title=dict(text=f"Relative Barrier Heights (vs {ref_sys})", font=dict(size=32)),
@@ -337,6 +367,7 @@ def main():
             zmax=1,
             template="plotly_white"
         )
+        fig_corr_heat = apply_academic_style(fig_corr_heat)
         fig_corr_heat.update_layout(
             height=700,
             title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
@@ -363,6 +394,7 @@ def main():
                 template="plotly_white",
                 hover_data=[df_energy["System"]]
             )
+            fig_corr = apply_academic_style(fig_corr)
             min_v = min(x_data.min(), y_data.min())
             max_v = max(x_data.max(), y_data.max())
             fig_corr.add_shape(type="line", x0=min_v, x1=max_v, y0=min_v, y1=max_v, line=dict(dash='dash', color='gray'))
@@ -394,6 +426,7 @@ def main():
                 template="plotly_white",
                 hover_data=[df_energy["System"]]
             )
+            fig_ba = apply_academic_style(fig_ba)
             fig_ba.add_hline(y=md, line_color="black", annotation_text="Mean")
             fig_ba.add_hline(y=md + 1.96*sd, line_dash="dash", line_color="red", annotation_text="+1.96 SD")
             fig_ba.add_hline(y=md - 1.96*sd, line_dash="dash", line_color="red", annotation_text="-1.96 SD")
@@ -433,6 +466,7 @@ def main():
         else: df_norm["R2"] = 1.0
 
         fig_radar = go.Figure()
+        fig_radar = apply_academic_style(fig_radar)
         categories = ["MAE", "RMSE", "MaxError", "R2"]
         
         for i, row in df_norm.iterrows():
@@ -534,6 +568,7 @@ def main():
                         texttemplate="%{text}",
                         colorbar=dict(title="RMSD (Å)")
                     ))
+                    fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
                     fig_rmsd_heat.update_layout(
                         height=600,
                         title=dict(text="RMSD Heatmap", font=dict(size=32)),
@@ -589,6 +624,7 @@ def main():
                         template="simple_white",
                         color_discrete_sequence=px.colors.qualitative.Safe
                     )
+                    fig_struct = apply_academic_style(fig_struct)
                     
                     fig_struct.update_traces(
                         marker=dict(size=14, opacity=0.8, line=dict(width=1, color='black')),
@@ -596,21 +632,13 @@ def main():
                     )
 
                     # Background Zones (Low Opacity)
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.08, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.08, line_width=0, layer="below")
-                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.08, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.15, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.15, line_width=0, layer="below")
+                    fig_struct.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.15, line_width=0, layer="below")
 
                     # Lines
                     fig_struct.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="RMSD Tol", annotation_position="top right")
                     fig_struct.add_hline(y=e_tol, line_dash="dash", line_color="black", line_width=2, annotation_text="E Tol", annotation_position="top right")
-
-                    axes_style = dict(
-                        showline=True, linewidth=2, linecolor='black', mirror=True,
-                        ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
-                        showgrid=False, zeroline=False,
-                        tickfont=dict(size=14, color='black', family='Arial'),
-                        title_font=dict(size=18, family='Arial', color='black')
-                    )
 
                     fig_struct.update_layout(
                         height=900,
@@ -618,17 +646,9 @@ def main():
                         title=dict(text=f"Structure-Energy Overview (Benchmark: {benchmark_method})", font=dict(size=24, family="Arial", color="black")),
                         xaxis_title="RMSD (Å)",
                         yaxis_title="Absolute Energy Error (kcal/mol)",
-                        font=dict(family="Arial", size=16, color="black"),
-                        legend=dict(
-                            title_font_family="Arial",
-                            font=dict(family="Arial", size=14),
-                            bordercolor="black",
-                            borderwidth=1
-                        ),
-                        margin=dict(l=60, r=40, t=60, b=60)
                     )
-                    fig_struct.update_xaxes(range=[0, x_limit], **axes_style)
-                    fig_struct.update_yaxes(range=[0, y_limit], **axes_style)
+                    fig_struct.update_xaxes(range=[0, x_limit])
+                    fig_struct.update_yaxes(range=[0, y_limit])
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
@@ -705,6 +725,7 @@ def main():
                                 template="simple_white",
                                 color_discrete_sequence=px.colors.qualitative.Safe
                             )
+                            fig_core = apply_academic_style(fig_core)
 
                             # Style traces: Size 12
                             fig_core.update_traces(
@@ -733,40 +754,24 @@ def main():
                                 ))
 
                             # Add Background Zones (Applicable to single plot)
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.08, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.08, line_width=0, layer="below")
-                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.08, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.15, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.15, line_width=0, layer="below")
+                            fig_core.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.15, line_width=0, layer="below")
 
                             # Add Threshold Lines
                             fig_core.add_vline(x=r_tol, line_dash="dash", line_color="black", line_width=2)
                             fig_core.add_hline(y=e_tol, line_dash="dash", line_color="black", line_width=2)
-
-                            axes_style = dict(
-                                showline=True, linewidth=2, linecolor='black', mirror=True,
-                                ticks='inside', tickwidth=2, ticklen=6, tickcolor='black',
-                                showgrid=False, zeroline=False,
-                                tickfont=dict(size=14, color='black', family='Arial'),
-                                title_font=dict(size=18, family='Arial', color='black')
-                            )
 
                             # Layout updates: Lock axes to global limits, Widescreen Canvas
                             fig_core.update_layout(
                                 width=1200, 
                                 height=700,
                                 autosize=False,
-                                margin=dict(l=60, r=40, t=60, b=60),
                                 title=dict(text=f"{m} - {core} Core Diagnostic", font=dict(size=24, family="Arial", color="black")),
-                                font=dict(family="Arial", size=16, color="black"),
-                                legend=dict(
-                                    title_font_family="Arial",
-                                    font=dict(family="Arial", size=14),
-                                    bordercolor="black",
-                                    borderwidth=1,
-                                    title=dict(text="Substituent")
-                                )
+                                legend=dict(title=dict(text="Substituent"))
                             )
-                            fig_core.update_xaxes(title="RMSD (Å)", range=[0, x_limit], **axes_style)
-                            fig_core.update_yaxes(title="Abs. Error (kcal/mol)", range=[0, y_limit], **axes_style)
+                            fig_core.update_xaxes(title="RMSD (Å)", range=[0, x_limit])
+                            fig_core.update_yaxes(title="Abs. Error (kcal/mol)", range=[0, y_limit])
 
                             st.plotly_chart(fig_core, use_container_width=True, config=PLOT_CONFIG)
                             all_figures.append(fig_core)
