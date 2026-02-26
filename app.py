@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cluster import DBSCAN
 from scipy import stats
 from scipy.spatial.distance import cdist  # Added for NND algorithm
 
@@ -618,7 +620,7 @@ def main():
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
                 with tab_single:
-                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **最近邻孤立检测 (NND)**，即使数据分布松散也能准确标注离群点。")
+                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **DBSCAN 密度聚类 + 视觉归一化**，智能识别孤立离群点，避免密集标注。")
                     
                     unique_methods = df_plot_struct['Method'].unique()
                     # Updated Core Order: Removed 'DA', 'Other'
@@ -646,39 +648,34 @@ def main():
 
                             st.markdown(f"### 🧬 {core} 体系 ({m})")
                             
-                            # --- Nearest Neighbor Distance (NND) Outlier Detection Logic ---
-                            if len(plot_data) >= 3:
-                                # 1. Normalization (Min-Max)
-                                rmsd_range = plot_data['RMSD'].max() - plot_data['RMSD'].min() + 1e-6
-                                err_range = plot_data['AbsError'].max() - plot_data['AbsError'].min() + 1e-6
+                            # --- DBSCAN Density Clustering Outlier Detection Logic ---
+                            plot_data['Label'] = None # Initialize all labels to None
+
+                            if len(plot_data) > 2:
+                                # 1. Visual Space Normalization (Simulate human visual perception on a square canvas)
+                                scaler = MinMaxScaler()
+                                # Use AbsError instead of Energy_Error as per existing DataFrame
+                                coords = scaler.fit_transform(plot_data[['RMSD', 'AbsError']])
                                 
-                                rmsd_norm = (plot_data['RMSD'] - plot_data['RMSD'].min()) / rmsd_range
-                                eng_norm = (plot_data['AbsError'] - plot_data['AbsError'].min()) / err_range
+                                # 2. DBSCAN Density Clustering
+                                # eps=0.15: 15% of the visual canvas as attraction radius
+                                # min_samples=2: 2 points close together form a cluster (not isolated)
+                                clustering = DBSCAN(eps=0.15, min_samples=2).fit(coords)
                                 
-                                coords = np.column_stack((rmsd_norm, eng_norm))
+                                # labels_ == -1 represents isolated noise points
+                                is_isolated = (clustering.labels_ == -1)
                                 
-                                # 2. Distance Matrix Calculation
-                                dists = cdist(coords, coords)
-                                np.fill_diagonal(dists, np.inf) # Ignore self-distance
+                                # 3. Error Zone Determination (Outside Safe Zone)
+                                is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
                                 
-                                # 3. Find Nearest Neighbor Distance
-                                min_dists = dists.min(axis=1)
-                                
-                                # 4. Dynamic Threshold (Median * 2.5)
-                                nnd_median = np.median(min_dists)
-                                nnd_threshold = nnd_median * 2.5
-                                
-                                outlier_mask = min_dists > nnd_threshold
-                                
-                                # 5. Fallback: Absolute extreme values
-                                abs_mask = (plot_data['RMSD'] > r_tol * 2) | (plot_data['AbsError'] > e_tol * 2)
-                                
-                                final_mask = outlier_mask | abs_mask
-                                
-                                plot_data['Stat_Label'] = np.where(final_mask, plot_data['System'], None)
-                            else:
-                                # Too few points, label all
-                                plot_data['Stat_Label'] = plot_data['System']
+                                # 4. Final Condition: Must be [Isolated] AND [Bad] to be labeled
+                                final_mask = pd.Series(is_isolated & is_bad, index=plot_data.index)
+                                plot_data.loc[final_mask, 'Label'] = plot_data.loc[final_mask, 'System']
+
+                            elif len(plot_data) > 0:
+                                # If only 1-2 points, clustering doesn't apply; label if bad
+                                is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
+                                plot_data.loc[is_bad, 'Label'] = plot_data.loc[is_bad, 'System']
 
                             # Create individual figure (Square Ratio)
                             fig_core = px.scatter(
@@ -688,7 +685,7 @@ def main():
                                 color="Substituent",
                                 symbol="Core_Type",           # Keep symbol mapping for visual consistency
                                 symbol_map=symbol_map_core,
-                                text="Stat_Label",            # Use new NND labels
+                                text="Label",                 # Use new DBSCAN labels
                                 hover_data=["System", "AbsError", "RMSD"],
                                 template="plotly_white",
                                 color_discrete_sequence=px.colors.qualitative.Dark24
