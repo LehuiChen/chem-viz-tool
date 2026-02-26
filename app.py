@@ -221,9 +221,8 @@ def main():
             )
             fig_box = apply_academic_style(fig_box)
             fig_box.update_traces(
-                marker=dict(opacity=0.5, size=5, line=dict(width=0)),
-                jitter=0.4,
-                line=dict(color='black', width=1.5)
+                marker=dict(opacity=0.6, size=5, line=dict(width=0)),
+                jitter=0.4
             )
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
@@ -358,7 +357,6 @@ def main():
                     color_discrete_sequence=px.colors.qualitative.G10
                 )
                 fig_bar = apply_academic_style(fig_bar)
-                fig_bar.update_traces(marker_line_color='black', marker_line_width=1.5)
                 fig_bar.add_hline(y=0, line_width=2, line_color="black")
                 fig_bar.update_layout(
                     title=dict(text=f"Relative Barrier Heights (vs {ref_sys})", font=dict(size=32)),
@@ -378,8 +376,10 @@ def main():
 
         st.markdown("##### 🌡️ 模块 A: 方法间相关性热力图 (Pearson Correlation)")
         corr_matrix = df_energy[methods].corr().round(2)
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+        half_corr_matrix = corr_matrix.where(~mask, np.nan)
         fig_corr_heat = px.imshow(
-            corr_matrix,
+            half_corr_matrix,
             text_auto=True,
             color_continuous_scale='RdBu_r',
             color_continuous_midpoint=0,
@@ -809,17 +809,36 @@ def main():
                     if all_figures:
                         st.markdown("---")
                         st.markdown("### 📥 批量导出")
-                        st.info("点击下方按钮，可将上述所有图表打包导出为一个离线 HTML 报告，方便后续查看或保存单张图片。")
-
-                        # 将所有图表转为单个 HTML 文件
-                        html_content = "<html><head><title>Diagnostic Report</title><meta charset='utf-8'></head><body>"
+                        
+                        html_content = """
+                        <html>
+                        <head>
+                            <title>Diagnostic Report</title>
+                            <style>
+                                body { background-color: #f8f9fa; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+                                .report-container { max-width: 1400px; margin: 0 auto; background-color: white; padding: 40px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+                                .plot-box { margin-bottom: 60px; border-bottom: 2px dashed #ccc; padding-bottom: 40px; }
+                                h1 { text-align: center; color: #333; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="report-container">
+                                <h1>Structure-Energy Diagnostic Report</h1>
+                        """
+                        
                         for i, f in enumerate(all_figures):
-                            html_content += f.to_html(full_html=False, include_plotlyjs='cdn' if i==0 else False)
-                            html_content += "<hr>"
-                        html_content += "</body></html>"
-
+                            f.update_layout(autosize=True)
+                            plot_div = f.to_html(full_html=False, include_plotlyjs='cdn' if i==0 else False)
+                            html_content += f'<div class="plot-box">{plot_div}</div>'
+                            
+                        html_content += """
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        
                         st.download_button(
-                            label="一键导出所有分析图 (HTML格式)",
+                            label="一键导出所有分析图 (高清离线 HTML)",
                             data=html_content,
                             file_name="All_Diagnostics_Report.html",
                             mime="text/html"
