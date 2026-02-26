@@ -3,8 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.cluster import DBSCAN
 from scipy import stats
 from scipy.spatial.distance import cdist  # Added for NND algorithm
 
@@ -620,7 +618,9 @@ def main():
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
                 with tab_single:
-                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **DBSCAN 密度聚类 + 视觉归一化**，智能识别孤立离群点，避免密集标注。")
+                    st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **4% 绝对排斥半径**，智能识别孤立离群点，避免密集标注。")
+                    
+                    all_figures = [] # Initialize list for export
                     
                     unique_methods = df_plot_struct['Method'].unique()
                     # Updated Core Order: Removed 'DA', 'Other'
@@ -648,34 +648,34 @@ def main():
 
                             st.markdown(f"### 🧬 {core} 体系 ({m})")
                             
-                            # --- DBSCAN Density Clustering Outlier Detection Logic ---
-                            plot_data['Label'] = None # Initialize all labels to None
+                            # --- Bulletproof Labeling (4% Repulsion) ---
+                            plot_data['Stat_Label'] = None
 
-                            if len(plot_data) > 2:
-                                # 1. Visual Space Normalization (Simulate human visual perception on a square canvas)
-                                scaler = MinMaxScaler()
-                                # Use AbsError instead of Energy_Error as per existing DataFrame
-                                coords = scaler.fit_transform(plot_data[['RMSD', 'AbsError']])
-                                
-                                # 2. DBSCAN Density Clustering
-                                # eps=0.15: 15% of the visual canvas as attraction radius
-                                # min_samples=2: 2 points close together form a cluster (not isolated)
-                                clustering = DBSCAN(eps=0.15, min_samples=2).fit(coords)
-                                
-                                # labels_ == -1 represents isolated noise points
-                                is_isolated = (clustering.labels_ == -1)
-                                
-                                # 3. Error Zone Determination (Outside Safe Zone)
+                            if len(plot_data) > 1:
+                                # 1. 按照全局最大值进行统一归一化 (保证视觉距离的一致性)
+                                norm_x = plot_data['RMSD'] / x_limit
+                                norm_y = plot_data['AbsError'] / y_limit
+                                coords = np.column_stack((norm_x, norm_y))
+
+                                # 2. 计算两两之间的欧氏距离
+                                dists = cdist(coords, coords)
+                                np.fill_diagonal(dists, np.inf)
+
+                                # 3. 找到每个点最近的邻居距离
+                                min_dists = dists.min(axis=1)
+
+                                # 4. 严格条件：
+                                # 条件A：视觉上极度孤立 (离最近的邻居都超过画布范围的 4%)
+                                is_isolated = min_dists > 0.04 
+                                # 条件B：不在安全区
                                 is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
-                                
-                                # 4. Final Condition: Must be [Isolated] AND [Bad] to be labeled
+
                                 final_mask = pd.Series(is_isolated & is_bad, index=plot_data.index)
-                                plot_data.loc[final_mask, 'Label'] = plot_data.loc[final_mask, 'System']
-
-                            elif len(plot_data) > 0:
-                                # If only 1-2 points, clustering doesn't apply; label if bad
+                                plot_data.loc[final_mask, 'Stat_Label'] = plot_data.loc[final_mask, 'System']
+                            elif len(plot_data) == 1:
+                                # 只有一个点时，只要算错了就标
                                 is_bad = (plot_data['RMSD'] > r_tol) | (plot_data['AbsError'] > e_tol)
-                                plot_data.loc[is_bad, 'Label'] = plot_data.loc[is_bad, 'System']
+                                plot_data.loc[is_bad, 'Stat_Label'] = plot_data.loc[is_bad, 'System']
 
                             # Create individual figure (Square Ratio)
                             fig_core = px.scatter(
@@ -685,7 +685,7 @@ def main():
                                 color="Substituent",
                                 symbol="Core_Type",           # Keep symbol mapping for visual consistency
                                 symbol_map=symbol_map_core,
-                                text="Label",                 # Use new DBSCAN labels
+                                text="Stat_Label",            # Use new NND labels
                                 hover_data=["System", "AbsError", "RMSD"],
                                 template="plotly_white",
                                 color_discrete_sequence=px.colors.qualitative.Dark24
@@ -737,8 +737,28 @@ def main():
                             )
 
                             st.plotly_chart(fig_core, use_container_width=True, config=PLOT_CONFIG)
+                            all_figures.append(fig_core)
                         
                         st.divider() # Separator between methods
+
+                    if all_figures:
+                        st.markdown("---")
+                        st.markdown("### 📥 批量导出")
+                        st.info("点击下方按钮，可将上述所有图表打包导出为一个离线 HTML 报告，方便后续查看或保存单张图片。")
+
+                        # 将所有图表转为单个 HTML 文件
+                        html_content = "<html><head><title>Diagnostic Report</title><meta charset='utf-8'></head><body>"
+                        for i, f in enumerate(all_figures):
+                            html_content += f.to_html(full_html=False, include_plotlyjs='cdn' if i==0 else False)
+                            html_content += "<hr>"
+                        html_content += "</body></html>"
+
+                        st.download_button(
+                            label="一键导出所有分析图 (HTML格式)",
+                            data=html_content,
+                            file_name="All_Diagnostics_Report.html",
+                            mime="text/html"
+                        )
 
                 c1, c2, c3 = st.columns(3)
                 with c1:
