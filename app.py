@@ -860,9 +860,6 @@ def main():
                     # 自动获取所有独一无二的体系并排序
                     unique_systems = sorted(df_plot_struct['System'].unique())
                     
-                    # 提取母体基准数据
-                    one_data = df_plot_struct[df_plot_struct['System'] == 'One']
-                    
                     for sys_name in unique_systems:
                         sys_data = df_plot_struct[df_plot_struct['System'] == sys_name]
                         if sys_data.empty:
@@ -887,30 +884,6 @@ def main():
                         
                         # 应用全局学术皮肤
                         fig_sys = apply_academic_style(fig_sys)
-                        
-                        # 【新增：注入 One 幽灵参照点】
-                        # 如果当前画的不是 'One' 本身，且 one_data 存在，则叠加参照点
-                        if not one_data.empty and sys_name != 'One':
-                            fig_sys.add_trace(
-                                go.Scatter(
-                                    x=one_data['RMSD'],
-                                    y=one_data['AbsError'],
-                                    mode='markers+text',
-                                    marker=dict(
-                                        symbol='star',          # 使用五角星区分
-                                        size=14, 
-                                        color='rgba(150, 150, 150, 0.5)', # 半透明灰色，不抢戏
-                                        line=dict(color='black', width=1)
-                                    ),
-                                    text=one_data['Method'],    # 标出方法名
-                                    textposition='bottom center',
-                                    textfont=dict(family="Arial", size=11, color='grey'), # 字体也调成灰色小字
-                                    name='Anchor (One)',
-                                    showlegend=False,
-                                    hoverinfo='text+x+y',
-                                    hovertemplate='<b>Anchor (One)</b><br>Method: %{text}<br>RMSD: %{x}<br>Error: %{y}<extra></extra>'
-                                )
-                            )
                         
                         # 强制锁定全局坐标轴，确保所有“靶子”大小一模一样
                         fig_sys.update_xaxes(range=[0, x_limit])
