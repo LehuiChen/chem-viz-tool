@@ -631,7 +631,7 @@ def main():
                 }
 
                 # --- Tabs Layout ---
-                tab_global, tab_single = st.tabs(["📊 全局总览 (All Methods)", "🔍 分方法诊断 (Independent Large Plots)"])
+                tab_global, tab_method, tab_system = st.tabs(["📊 全局总览 (All Methods)", "🔍 分方法诊断 (Independent Large Plots)", "🎯 分体系全景横评 (Method Benchmark)"])
 
                 # --- Tab 1: Global Overview ---
                 with tab_global:
@@ -681,7 +681,7 @@ def main():
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---
-                with tab_single:
+                with tab_method:
                     st.info("💡 **独立大图模式**: 按 **方法 -> 骨架** 顺序纵向展示。标签算法已升级为 **8% 绝对排斥半径**，智能识别孤立离群点，避免密集标注。")
                     
                     all_figures = [] # Initialize list for export
@@ -703,6 +703,9 @@ def main():
                         for core in core_order:
                             # Filter for core type
                             core_subset = method_subset[method_subset['Core_Type'] == core]
+                            
+                            if core_subset.empty:
+                                continue
                             
                             # Filter out anchor from main scatter data to avoid duplication/label clutter
                             plot_data = core_subset[core_subset['System'] != anchor_sys].copy()
@@ -841,6 +844,100 @@ def main():
                             label="一键导出所有分析图 (高清离线 HTML)",
                             data=html_content,
                             file_name="All_Diagnostics_Report.html",
+                            mime="text/html"
+                        )
+
+                # --- Tab 3: System-by-System Benchmark ---
+                with tab_system:
+                    st.markdown("### 🧪 全体系方法基准测试瀑布流")
+                    st.info("展示各个计算方法在同一体系下的表现差异。所有坐标轴范围已强制统一，便于横向绝对比对。")
+                    
+                    all_system_figures = [] # 用于收集所有图表以供导出
+                    
+                    # 自动获取所有独一无二的体系并排序
+                    unique_systems = sorted(df_plot_struct['System'].unique())
+                    
+                    for sys_name in unique_systems:
+                        sys_data = df_plot_struct[df_plot_struct['System'] == sys_name]
+                        if sys_data.empty:
+                            continue
+                            
+                        # 绘图：颜色代表方法，直接在点旁边标注方法名
+                        fig_sys = px.scatter(
+                            sys_data, 
+                            x="RMSD", y="AbsError",
+                            color="Method", 
+                            color_discrete_sequence=px.colors.qualitative.Set1, # 高对比度多色色盘
+                            text="Method", # 文本标签
+                            title=f"Method Benchmark: {sys_name}"
+                        )
+                        
+                        # 美化散点与文本标签位置
+                        fig_sys.update_traces(
+                            marker=dict(size=12, line=dict(color='black', width=1)),
+                            textposition='top center',
+                            textfont=dict(size=12, color='black')
+                        )
+                        
+                        # 应用全局学术皮肤
+                        fig_sys = apply_academic_style(fig_sys)
+                        
+                        # 强制锁定全局坐标轴，确保所有“靶子”大小一模一样
+                        fig_sys.update_xaxes(range=[0, x_limit])
+                        fig_sys.update_yaxes(range=[0, y_limit])
+                        
+                        # 绘制底层诊断分区背景 (绿/黄/红)
+                        fig_sys.add_shape(type="rect", x0=0, x1=r_tol, y0=0, y1=e_tol, fillcolor="#e8f4e5", opacity=0.6, layer="below", line_width=0)
+                        fig_sys.add_shape(type="rect", x0=0, x1=r_tol, y0=e_tol, y1=y_limit, fillcolor="#fff9e6", opacity=0.6, layer="below", line_width=0)
+                        fig_sys.add_shape(type="rect", x0=r_tol, x1=x_limit, y0=0, y1=y_limit, fillcolor="#fde8e8", opacity=0.6, layer="below", line_width=0)
+                
+                        # 隐藏多余图例，设定比例
+                        fig_sys.update_layout(
+                            height=600, autosize=True,
+                            showlegend=False 
+                        )
+                        
+                        # 在 Streamlit 页面上渲染
+                        st.plotly_chart(fig_sys, use_container_width=True, config=PLOT_CONFIG)
+                        # 存入列表，准备离线导出
+                        all_system_figures.append(fig_sys)
+                        
+                    # 3. 批量导出离线 HTML (复用高级 CSS 样式)
+                    if all_system_figures:
+                        st.markdown("---")
+                        st.markdown("### 📥 批量导出横评报告")
+                        
+                        html_content_sys = """
+                        <html>
+                        <head>
+                            <title>Method Benchmark Report</title>
+                            <style>
+                                body { background-color: #f8f9fa; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+                                .report-container { max-width: 1400px; margin: 0 auto; background-color: white; padding: 40px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+                                .plot-box { margin-bottom: 60px; border-bottom: 2px dashed #ccc; padding-bottom: 40px; }
+                                h1 { text-align: center; color: #333; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="report-container">
+                                <h1>Computational Methods Benchmark Report (System-by-System)</h1>
+                        """
+                        
+                        for i, f in enumerate(all_system_figures):
+                            f.update_layout(autosize=True) # 确保 HTML 中自动适应
+                            plot_div = f.to_html(full_html=False, include_plotlyjs='cdn' if i==0 else False)
+                            html_content_sys += f'<div class="plot-box">{plot_div}</div>'
+                            
+                        html_content_sys += """
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        
+                        st.download_button(
+                            label="一键导出所有基团方法横评 (高清离线 HTML)",
+                            data=html_content_sys,
+                            file_name="All_Systems_Benchmark.html",
                             mime="text/html"
                         )
 
