@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 tmp_input/
 migrated_prompt_history/
+.codex_pydeps/
+.codex_tmp/
+tmp_export_figures/
 .venv
 venv
 env
