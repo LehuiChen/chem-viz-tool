@@ -437,10 +437,11 @@ def make_barrier_trend_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
 
     fig, ax = make_figure_canvas(figsize=(13.2, 6.6))
     for method_name in methods:
-        series = ordered[method_name].to_numpy(dtype=float)
+        x_values = ordered["RankIndex"].to_numpy(dtype=float)
+        series = pd.Series(ordered[method_name].to_numpy(dtype=float), index=x_values)
         ax.plot(
-            ordered["RankIndex"],
-            series,
+            x_values,
+            series.to_numpy(dtype=float),
             color=METHOD_COLOR_MAP.get(method_name, "#444444"),
             marker=METHOD_MARKER_MAP.get(method_name, "o"),
             linewidth=2.8 if method_name == benchmark_method else 1.9,
@@ -448,6 +449,28 @@ def make_barrier_trend_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
             alpha=0.98 if method_name == benchmark_method else 0.86,
             label=METHOD_PLOT_LABELS.get(method_name, method_name),
         )
+
+        # 中文注释：排序图里的缺失值如果直接断线，视觉上会像方法趋势被截断；
+        # 这里仅对“内部缺口”做线性插值桥接，并用同色虚线标记，避免把插值段误当作真实计算值。
+        if series.isna().any():
+            bridged = series.interpolate(method="linear", limit_area="inside")
+            values = series.to_numpy(dtype=float)
+            gap_mask = np.isnan(values)
+            gap_starts = np.flatnonzero(gap_mask & np.r_[True, ~gap_mask[:-1]])
+            gap_ends = np.flatnonzero(gap_mask & np.r_[~gap_mask[1:], True])
+            for start_idx, end_idx in zip(gap_starts, gap_ends):
+                if start_idx == 0 or end_idx == len(values) - 1:
+                    continue
+                segment_slice = slice(start_idx - 1, end_idx + 2)
+                ax.plot(
+                    x_values[segment_slice],
+                    bridged.to_numpy(dtype=float)[segment_slice],
+                    color=METHOD_COLOR_MAP.get(method_name, "#444444"),
+                    linewidth=1.4 if method_name == benchmark_method else 1.15,
+                    linestyle=(0, (4, 2)),
+                    alpha=0.80,
+                    zorder=2,
+                )
 
     ax.set_xlabel(f"按{benchmark_method} 能垒从低到高排序的{reaction_spec['display']}体系序号")
     ax.set_ylabel("反应能垒 Ea (kcal/mol)")
@@ -466,47 +489,40 @@ def make_absolute_error_distribution_figure(
 ) -> plt.Figure:
     _, abs_error = build_error_tables(df_energy, benchmark_method)
     methods = list(abs_error.columns)
-    data_arrays = [abs_error[method_name].dropna().to_numpy() for method_name in methods]
-
     fig, ax = make_figure_canvas(figsize=(12.2, 6.3))
-    boxplot = ax.boxplot(
-        data_arrays,
-        patch_artist=True,
-        widths=0.55,
-        showfliers=False,
-        medianprops=dict(color="#1f1f1f", linewidth=1.6),
-        whiskerprops=dict(color="#4f4f4f", linewidth=1.2),
-        capprops=dict(color="#4f4f4f", linewidth=1.2),
-    )
-
-    for patch, method_name in zip(boxplot["boxes"], methods):
-        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
-        patch.set_facecolor(with_alpha(color, 0.30))
-        patch.set_edgecolor(color)
-        patch.set_linewidth(1.6)
 
     for idx, method_name in enumerate(methods, start=1):
         values = abs_error[method_name].dropna().to_numpy()
         if values.size == 0:
             continue
-        jitter = RNG.normal(loc=idx, scale=0.045, size=values.size)
+        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
+        jitter = RNG.normal(loc=idx, scale=0.06, size=values.size)
         ax.scatter(
             jitter,
             values,
-            s=16,
-            color=METHOD_COLOR_MAP.get(method_name, "#4f4f4f"),
-            alpha=0.70,
+            s=20,
+            color=color,
+            alpha=0.58,
             linewidths=0.0,
             zorder=3,
         )
 
-    ax.axhline(
-        1.0,
-        color="#8C1C13",
-        linestyle="--",
-        linewidth=1.4,
-    )
-    ax.text(0.55, 1.08, "1.0 kcal/mol 参考线", color="#8C1C13", fontsize=10.5, va="bottom")
+        q10, q25, median, q75, q90 = np.quantile(values, [0.10, 0.25, 0.50, 0.75, 0.90])
+        ax.vlines(idx, q10, q90, color=color, linewidth=1.4, alpha=0.95, zorder=4)
+        ax.vlines(idx, q25, q75, color=color, linewidth=8.0, alpha=0.30, zorder=5)
+        ax.scatter(
+            [idx],
+            [median],
+            s=54,
+            facecolor="white",
+            edgecolor=color,
+            linewidth=1.6,
+            zorder=6,
+        )
+
+        # 中文注释：样本数在不同方法间并不一致，直接写出 n 能减少读图时对分布宽度的误判。
+        ax.text(idx, q90 + 0.18, f"n={values.size}", ha="center", va="bottom", fontsize=9.5, color="#4f4f4f")
+
     ax.set_xlabel("计算方法")
     ax.set_ylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)")
     ax.set_xticks(range(1, len(methods) + 1))
