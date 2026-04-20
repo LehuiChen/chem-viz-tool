@@ -30,16 +30,18 @@ PLOT_CONFIG = {
 # --- 2. Helper Functions ---
 
 DISPLAY_FONT_FAMILY = "Microsoft YaHei, SimHei, Arial"
-PREFERRED_BENCHMARK_METHOD = "ωB97X-D"
+PREFERRED_BENCHMARK_METHOD = "ωB97X-D/6-31G(d)"
 MISSING_VALUE_MARKERS = ["####", "nan", "NaN", "N/A", "NA", ""]
 METHOD_NAME_ALIASES = {
-    "m062x": "M06-2X",
-    "m06x": "M06-X",
-    "b3lyp": "B3LYP-D3",
-    "b3lypd3": "B3LYP-D3",
-    "wb97xd": "ωB97X-D",
-    "wb97xdd": "ωB97X-D",
-    "ωb97xd": "ωB97X-D",
+    "m062x": "M06-2X/6-31G(d)",
+    "m062x631gd": "M06-2X/6-31G(d)",
+    "b3lyp": "B3LYP-D3/6-31G(d)",
+    "b3lypd3": "B3LYP-D3/6-31G(d)",
+    "b3lypd3631gd": "B3LYP-D3/6-31G(d)",
+    "wb97xd": "ωB97X-D/6-31G(d)",
+    "wb97xdd": "ωB97X-D/6-31G(d)",
+    "wb97xd631gd": "ωB97X-D/6-31G(d)",
+    "ωb97xd": "ωB97X-D/6-31G(d)",
     "gfn2xtb": "GFN2-xTB",
     "xtb": "GFN2-xTB",
     "aiqm2": "AIQM2",
@@ -47,8 +49,38 @@ METHOD_NAME_ALIASES = {
     "maceomol0": "MACE-OMOL-0",
     "orb": "orb_v3_conservative_omol",
     "orbv3conservativeomol": "orb_v3_conservative_omol",
-    "oniom": "ONIOM (AIQM2: GFN2-xTB)",
-    "oniomaiqm2gfn2xtb": "ONIOM (AIQM2: GFN2-xTB)",
+    "oniom": "ONIOM(AIQM2:GFN2-xTB)",
+    "oniomaiqm2gfn2xtb": "ONIOM(AIQM2:GFN2-xTB)",
+}
+THESIS_METHOD_ORDER = [
+    "ωB97X-D/6-31G(d)",
+    "M06-2X/6-31G(d)",
+    "B3LYP-D3/6-31G(d)",
+    "AIQM2",
+    "GFN2-xTB",
+    "MACE-OMOL-0",
+    "orb_v3_conservative_omol",
+    "ONIOM(AIQM2:GFN2-xTB)",
+]
+METHOD_PLOT_LABELS = {
+    "ωB97X-D/6-31G(d)": "ωB97X-D<br>/6-31G(d)",
+    "M06-2X/6-31G(d)": "M06-2X<br>/6-31G(d)",
+    "B3LYP-D3/6-31G(d)": "B3LYP-D3<br>/6-31G(d)",
+    "AIQM2": "AIQM2",
+    "GFN2-xTB": "GFN2-xTB",
+    "MACE-OMOL-0": "MACE-OMOL-0",
+    "orb_v3_conservative_omol": "orb_v3_<br>conservative_omol",
+    "ONIOM(AIQM2:GFN2-xTB)": "ONIOM<br>(AIQM2:GFN2-xTB)",
+}
+METHOD_COLOR_MAP = {
+    "ωB97X-D/6-31G(d)": "#1f5f8b",
+    "M06-2X/6-31G(d)": "#c44536",
+    "B3LYP-D3/6-31G(d)": "#7a6f9b",
+    "AIQM2": "#2d936c",
+    "GFN2-xTB": "#d98324",
+    "MACE-OMOL-0": "#637381",
+    "orb_v3_conservative_omol": "#d1495b",
+    "ONIOM(AIQM2:GFN2-xTB)": "#5b8e7d",
 }
 META_COLUMNS = ("System", "Reaction", "Original_System", "Source_File")
 
@@ -64,11 +96,57 @@ def normalize_method_name(column_name):
         .replace(" ", "")
         .replace("(", "")
         .replace(")", "")
+        .replace("（", "")
+        .replace("）", "")
         .replace(":", "")
         .replace("：", "")
         .replace("+", "")
+        .replace("/", "")
+        .replace("／", "")
+        .replace(",", "")
     )
     return METHOD_NAME_ALIASES.get(alias_key, normalized)
+
+
+def sort_methods(methods):
+    """Keep thesis plots and legends in a stable method order."""
+    order_map = {name: idx for idx, name in enumerate(THESIS_METHOD_ORDER)}
+    return sorted(methods, key=lambda item: (order_map.get(item, len(order_map)), item.lower()))
+
+
+def get_plot_label(method_name):
+    """Wrap long method names only at the display layer to reduce crowding."""
+    return METHOD_PLOT_LABELS.get(method_name, method_name)
+
+
+def rename_method_traces(fig):
+    """Rewrite legend labels after plotting while keeping the underlying data names intact."""
+    for trace in fig.data:
+        trace_name = getattr(trace, "name", None)
+        if trace_name in METHOD_PLOT_LABELS:
+            display_name = get_plot_label(trace_name)
+            trace.name = display_name
+            if getattr(trace, "legendgroup", None) == trace_name:
+                trace.legendgroup = display_name
+    return fig
+
+
+def apply_method_axis_labels(fig, axis_name, methods):
+    """Keep method ordering fixed and wrap only the visual tick labels."""
+    tickvals = methods
+    ticktext = [get_plot_label(method) for method in methods]
+    axis_kwargs = dict(
+        tickmode="array",
+        tickvals=tickvals,
+        ticktext=ticktext,
+        categoryorder="array",
+        categoryarray=tickvals,
+    )
+    if axis_name == "x":
+        fig.update_xaxes(**axis_kwargs)
+    else:
+        fig.update_yaxes(**axis_kwargs)
+    return fig
 
 
 def coalesce_duplicate_columns(df):
@@ -184,10 +262,11 @@ def get_method_columns(df):
     """Return numeric method columns only."""
     if df is None:
         return []
-    return [
+    methods = [
         col for col in df.columns
         if col not in META_COLUMNS and pd.api.types.is_numeric_dtype(df[col])
     ]
+    return sort_methods(methods)
 
 
 def format_heatmap_value(value, digits=2, signed=False):
@@ -228,9 +307,9 @@ def generate_sample_energy():
 
     base = np.random.uniform(10, 30, size=len(systems))
     data = {"System": systems, "CCSD(T)": base}
-    data["M06-2X"] = base + np.random.normal(0, 1.5, len(systems))
-    data["B3LYP-D3"] = base + np.random.normal(-2, 3.0, len(systems))
-    data["ωB97X-D"] = base + np.random.normal(0, 0.8, len(systems))
+    data["M06-2X/6-31G(d)"] = base + np.random.normal(0, 1.5, len(systems))
+    data["B3LYP-D3/6-31G(d)"] = base + np.random.normal(-2, 3.0, len(systems))
+    data["ωB97X-D/6-31G(d)"] = base + np.random.normal(0, 0.8, len(systems))
     return pd.DataFrame(data).round(2)
 
 def generate_sample_rmsd():
@@ -240,36 +319,39 @@ def generate_sample_rmsd():
     systems = df_e["System"].tolist()
     
     data = {"System": systems}
-    data["M06-2X"] = np.random.gamma(2, 0.1, len(systems)) 
-    data["B3LYP-D3"] = np.random.gamma(3, 0.15, len(systems))
-    data["ωB97X-D"] = np.random.gamma(1, 0.05, len(systems))
+    data["M06-2X/6-31G(d)"] = np.random.gamma(2, 0.1, len(systems))
+    data["B3LYP-D3/6-31G(d)"] = np.random.gamma(3, 0.15, len(systems))
+    data["ωB97X-D/6-31G(d)"] = np.random.gamma(1, 0.05, len(systems))
     data["CCSD(T)"] = [0.0] * len(systems)
     return pd.DataFrame(data).round(3)
 
-def apply_academic_style(fig):
+def apply_academic_style(fig, showlegend=True):
     """强制统一的学术出版级样式"""
     fig.update_layout(
         template="simple_white",
         autosize=True,
-        font=dict(family=DISPLAY_FONT_FAMILY, size=14, color="black"), # 全局基底字体
-        title_font=dict(family=DISPLAY_FONT_FAMILY, size=18, color="black"), # 强制标题字体大且统一
-        margin=dict(l=60, r=40, t=60, b=60),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(family=DISPLAY_FONT_FAMILY, size=14, color="black"),
+        title_font=dict(family=DISPLAY_FONT_FAMILY, size=18, color="black"),
+        margin=dict(l=72, r=220 if showlegend else 50, t=32, b=72),
         legend=dict(
-            orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="center", x=0.5,
+            orientation="v",
+            yanchor="top", y=1.0,
+            xanchor="left", x=1.02,
             title_text="",
             font=dict(family=DISPLAY_FONT_FAMILY, size=12),
-            bordercolor="white",
+            bordercolor="rgba(0,0,0,0)",
             borderwidth=0,
-            bgcolor="rgba(0,0,0,0)"
-        )
+            bgcolor="rgba(255,255,255,0.88)"
+        ),
+        showlegend=showlegend,
     )
     
-    # 强制坐标轴标题和刻度的字体
+    # 中文注释：论文图强调“量纲和对象”可读性，因此默认使用外置图例和留白更大的边距。
     axes_style = dict(
-        title_font=dict(family=DISPLAY_FONT_FAMILY, size=16, color="black"), # 轴标题字体
-        tickfont=dict(family=DISPLAY_FONT_FAMILY, size=14, color="black"),   # 轴刻度字体
+        title_font=dict(family=DISPLAY_FONT_FAMILY, size=16, color="black"),
+        tickfont=dict(family=DISPLAY_FONT_FAMILY, size=14, color="black"),
         showline=True, linewidth=1.5, linecolor='black', mirror=True,
         ticks='inside', tickwidth=1.5, ticklen=5, tickcolor='black',
         showgrid=False, zeroline=False
@@ -381,25 +463,28 @@ def main():
                 y="Absolute_Energy_Error",
                 color="Method",
                 points="all",
-                color_discrete_sequence=px.colors.qualitative.G10
+                color_discrete_map=METHOD_COLOR_MAP,
+                category_orders={"Method": plot_methods},
             )
-            fig_box = apply_academic_style(fig_box)
+            fig_box = apply_academic_style(fig_box, showlegend=False)
             fig_box.update_traces(
                 marker=dict(opacity=0.6, size=5, line=dict(width=0)),
-                jitter=0.4
+                jitter=0.26,
+                pointpos=0.0,
             )
             fig_box.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
             fig_box.update_layout(
-                height=500,
-                title=dict(text="Absolute Error Distribution", font=dict(size=32)),
+                height=620,
+                title=None,
                 xaxis_title="计算方法",
-                yaxis_title="绝对误差 (kcal/mol)",
+                yaxis_title="相对参考层的绝对能垒误差 |ΔE| (kcal/mol)",
                 font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
                 xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
                 yaxis=dict(title_font=dict(size=28), tickfont=dict(size=22)),
-                legend=dict(font=dict(size=22)),
                 template="plotly_white"
             )
+            apply_method_axis_labels(fig_box, "x", plot_methods)
+            rename_method_traces(fig_box)
             st.plotly_chart(fig_box, use_container_width=True, config=PLOT_CONFIG)
 
         with col2:
@@ -424,18 +509,19 @@ def main():
                 texttemplate="%{text}",
                 colorbar=dict(title="Error", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
             ))
-            fig_heat_err = apply_academic_style(fig_heat_err)
+            fig_heat_err = apply_academic_style(fig_heat_err, showlegend=False)
             dynamic_height_err = max(500, len(df_signed_error.index) * 25)
             fig_heat_err.update_layout(
                 height=dynamic_height_err,
-                title=dict(text="Signed Error Heatmap", font=dict(size=32)),
+                title=None,
                 xaxis_title="计算方法",
-                yaxis_title="体系",
+                yaxis_title="反应体系",
                 font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
                 xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
                 yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
                 template="plotly_white"
             )
+            apply_method_axis_labels(fig_heat_err, "x", plot_methods)
             st.plotly_chart(fig_heat_err, use_container_width=True, config=PLOT_CONFIG)
             st.caption("🔴 红色 = 高估 (Error > 0) | 🔵 蓝色 = 低估 (Error < 0)")
 
@@ -451,18 +537,19 @@ def main():
             texttemplate="%{text}",
             colorbar=dict(title="Ea", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
         ))
-        fig_heat_raw = apply_academic_style(fig_heat_raw)
+        fig_heat_raw = apply_academic_style(fig_heat_raw, showlegend=False)
         dynamic_height_raw = max(500, len(df_heatmap_energy.index) * 25)
         fig_heat_raw.update_layout(
             height=dynamic_height_raw,
-            title=dict(text="Energy Barrier Heatmap", font=dict(size=32)),
+            title=None,
             xaxis_title="计算方法",
-            yaxis_title="体系",
+            yaxis_title="反应体系",
             font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
             yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
             template="plotly_white"
         )
+        apply_method_axis_labels(fig_heat_raw, "x", methods)
         st.plotly_chart(fig_heat_raw, use_container_width=True, config=PLOT_CONFIG)
 
     # =========================================================
@@ -472,30 +559,47 @@ def main():
         st.subheader("2. 化学规律探索 (Chemical Trends)")
 
         st.markdown("##### 📈 模块 B: 基准排序趋势图 (Benchmark-Sorted Trend)")
-        df_sorted = df_energy.sort_values(by=benchmark_method)
-        df_sorted_melt = df_sorted.melt(id_vars="System", value_vars=methods, var_name="Method", value_name="Energy")
+        if "Reaction" in df_energy.columns and df_energy["Reaction"].astype(str).str.casefold().eq("da").any():
+            df_trend_source = df_energy[df_energy["Reaction"].astype(str).str.casefold() == "da"].copy()
+        else:
+            df_trend_source = df_energy.copy()
+
+        df_sorted = df_trend_source.dropna(subset=[benchmark_method]).sort_values(by=benchmark_method).reset_index(drop=True)
+        df_sorted["排序序号"] = np.arange(1, len(df_sorted) + 1)
+        df_sorted["DisplaySystem"] = df_sorted["Original_System"] if "Original_System" in df_sorted.columns else df_sorted["System"]
+        df_sorted_melt = df_sorted.melt(
+            id_vars=["System", "DisplaySystem", "排序序号"],
+            value_vars=methods,
+            var_name="Method",
+            value_name="Energy",
+        ).dropna(subset=["Energy"])
         
         fig_trend = px.line(
             df_sorted_melt,
-            x="System",
+            x="排序序号",
             y="Energy",
             color="Method",
+            hover_name="DisplaySystem",
             markers=True,
             template="plotly_white",
-            color_discrete_sequence=px.colors.qualitative.G10
+            color_discrete_map=METHOD_COLOR_MAP,
+            category_orders={"Method": methods},
         )
         fig_trend = apply_academic_style(fig_trend)
         fig_trend.update_traces(line=dict(width=3), marker=dict(size=8), opacity=0.7)
         fig_trend.update_traces(selector=dict(name=benchmark_method), line=dict(width=6, dash='solid'), opacity=1.0)
         fig_trend.update_layout(
-            title=dict(text=f"Energy Trend (Sorted by {benchmark_method})", font=dict(size=32)),
-            xaxis_title="体系",
-            yaxis_title="能垒 (kcal/mol)",
+            title=None,
+            xaxis_title=f"按 {benchmark_method} 能垒从低到高排序的 Diels–Alder 体系序号",
+            yaxis_title="反应能垒 Ea (kcal/mol)",
             font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
             yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
-            legend=dict(font=dict(size=22))
+            legend=dict(font=dict(size=22)),
+            hovermode="x unified",
         )
+        fig_trend.update_xaxes(dtick=max(1, int(np.ceil(len(df_sorted) / 12))))
+        rename_method_traces(fig_trend)
         st.plotly_chart(fig_trend, use_container_width=True, config=PLOT_CONFIG)
 
         st.divider()
@@ -547,31 +651,36 @@ def main():
         st.subheader("3. 方法学评估 (Methodology Assessment)")
 
         st.markdown("##### 🌡️ 模块 A: 方法间相关性热力图 (Pearson Correlation)")
-        corr_matrix = df_energy[methods].corr().round(2)
-        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
-        half_corr_matrix = corr_matrix.where(~mask, np.nan)
+        if "Reaction" in df_energy.columns and df_energy["Reaction"].astype(str).str.casefold().eq("da").any():
+            df_corr_source = df_energy[df_energy["Reaction"].astype(str).str.casefold() == "da"].copy()
+        else:
+            df_corr_source = df_energy.copy()
+
+        corr_matrix = df_corr_source[methods].corr().round(2)
         fig_corr_heat = px.imshow(
-            half_corr_matrix,
-            text_auto=True,
+            corr_matrix,
+            text_auto=".2f",
             color_continuous_scale='RdBu_r',
             color_continuous_midpoint=0,
             zmin=-1,
             zmax=1,
             template="plotly_white"
         )
-        fig_corr_heat = apply_academic_style(fig_corr_heat)
+        fig_corr_heat = apply_academic_style(fig_corr_heat, showlegend=False)
         fig_corr_heat.update_traces(xgap=2, ygap=2)
         dynamic_height_corr = max(500, len(corr_matrix.index) * 25)
         fig_corr_heat.update_layout(
             coloraxis_colorbar=dict(outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
-            height=dynamic_height_corr,
-            title=dict(text="Correlation Matrix (Pearson R)", font=dict(size=32)),
+            height=max(680, dynamic_height_corr + 120),
+            title=None,
             xaxis_title="计算方法",
             yaxis_title="计算方法",
             font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
             xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
             yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1)
         )
+        apply_method_axis_labels(fig_corr_heat, "x", methods)
+        apply_method_axis_labels(fig_corr_heat, "y", methods)
         st.plotly_chart(fig_corr_heat, use_container_width=True, config=PLOT_CONFIG)
 
         st.divider()
@@ -682,25 +791,14 @@ def main():
         if not metrics:
             st.warning("当前缺少足够的有效配对数据，无法生成综合性能雷达图。")
         else:
-            df_metrics = pd.DataFrame(metrics)
+            df_metrics = pd.DataFrame(metrics).sort_values(
+                by="Method",
+                key=lambda series: series.map({name: idx for idx, name in enumerate(THESIS_METHOD_ORDER)}).fillna(len(THESIS_METHOD_ORDER))
+            )
             df_norm = df_metrics.copy()
-            metric_columns = ["MAE", "RMSE", "MaxError", "R2"]
-            metric_labels = {
-                "MAE": "能量 MAE",
-                "RMSE": "能量 RMSE",
-                "MaxError": "最大误差",
-                "R2": "能量 R²",
-            }
-            inverse_score_columns = ["MAE", "RMSE", "MaxError"]
 
-            # 中文注释：只有当全部待比较方法都存在 RMSD 指标时，才把结构维度纳入雷达图，
-            # 否则仍保留能量维度，避免因缺失值让多边形断裂。
-            if "MeanRMSD" in df_metrics.columns and df_metrics["MeanRMSD"].notna().all():
-                metric_columns.append("MeanRMSD")
-                metric_labels["MeanRMSD"] = "结构 RMSD"
-                inverse_score_columns.append("MeanRMSD")
-
-            for col in inverse_score_columns:
+            # 中文注释：能垒准确性综合 MAE / RMSE / R²，避免单一误差指标决定排序。
+            for col in ["MAE", "RMSE"]:
                 mn, mx = df_metrics[col].min(), df_metrics[col].max()
                 if mx != mn:
                     df_norm[col] = (mx - df_metrics[col]) / (mx - mn)
@@ -713,34 +811,56 @@ def main():
             else:
                 df_norm["R2"] = 1.0
 
+            df_norm["EnergyScore"] = df_norm[["MAE", "RMSE", "R2"]].mean(axis=1)
+
+            if "MeanRMSD" in df_metrics.columns and df_metrics["MeanRMSD"].notna().all():
+                mn_rmsd, mx_rmsd = df_metrics["MeanRMSD"].min(), df_metrics["MeanRMSD"].max()
+                if mx_rmsd != mn_rmsd:
+                    df_norm["StructureScore"] = (mx_rmsd - df_metrics["MeanRMSD"]) / (mx_rmsd - mn_rmsd)
+                else:
+                    df_norm["StructureScore"] = 1.0
+            else:
+                df_norm["StructureScore"] = df_norm["EnergyScore"]
+
+            df_norm["OverallScore"] = df_norm[["EnergyScore", "StructureScore"]].mean(axis=1)
+
             fig_radar = go.Figure()
             fig_radar = apply_academic_style(fig_radar)
-            fig_radar.update_layout(colorway=px.colors.qualitative.G10)
-            categories = [metric_labels[col] for col in metric_columns]
-            
-            for i, row in df_norm.iterrows():
-                vals = [row[col] for col in metric_columns]
-                vals += [vals[0]]
+            categories = ["能垒准确性", "结构准确性", "综合表现"]
+
+            for _, row in df_norm.iterrows():
+                color = METHOD_COLOR_MAP.get(row["Method"], "#4f4f4f")
+                values = [row["EnergyScore"], row["StructureScore"], row["OverallScore"]]
                 fig_radar.add_trace(go.Scatterpolar(
-                    r=vals, theta=categories + [categories[0]],
+                    r=values + [values[0]],
+                    theta=categories + [categories[0]],
                     name=row["Method"],
+                    mode="lines+markers",
+                    line=dict(color=color, width=2.8),
+                    marker=dict(color=color, size=7),
                     fill='toself'
                 ))
 
             fig_radar.update_layout(
                 polar=dict(
-                    radialaxis=dict(visible=True, range=[0, 1.05], showticklabels=False),
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, 1.0],
+                        tickvals=[0.2, 0.4, 0.6, 0.8, 1.0],
+                        tickfont=dict(size=14)
+                    ),
                     angularaxis=dict(tickfont=dict(size=24))
                 ),
-                title=dict(text="综合性能雷达图", font=dict(size=32)),
+                title=None,
                 font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
                 legend=dict(font=dict(size=22)),
                 template="plotly_white"
             )
+            rename_method_traces(fig_radar)
             st.plotly_chart(fig_radar, use_container_width=True, config=PLOT_CONFIG)
 
-            if "MeanRMSD" not in metric_columns:
-                st.caption("当前综合雷达图仅展示能量维度；若上传完整 RMSD 数据，将自动加入结构 RMSD 维度。")
+            if "MeanRMSD" not in df_metrics.columns or not df_metrics["MeanRMSD"].notna().all():
+                st.caption("当前 RMSD 数据不完整，结构准确性已回退为与能垒准确性同尺度的近似评分。")
             
             with st.expander("查看详细指标数据"):
                 st.dataframe(df_metrics.style.format(precision=3), use_container_width=True)
@@ -824,18 +944,19 @@ def main():
                         texttemplate="%{text}",
                         colorbar=dict(title="RMSD (Å)", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside")
                     ))
-                    fig_rmsd_heat = apply_academic_style(fig_rmsd_heat)
+                    fig_rmsd_heat = apply_academic_style(fig_rmsd_heat, showlegend=False)
                     dynamic_height_rmsd = max(500, len(df_rmsd_pivot.index) * 25)
                     fig_rmsd_heat.update_layout(
                         height=dynamic_height_rmsd,
-                        title=dict(text="RMSD 热力图", font=dict(size=32)),
+                        title=None,
                         xaxis_title="计算方法",
-                        yaxis_title="体系",
+                        yaxis_title="反应体系",
                         font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
                         xaxis=dict(tickfont=dict(size=22), title_font=dict(size=28)),
                         yaxis=dict(tickfont=dict(size=22), title_font=dict(size=28), tickmode='linear', dtick=1),
                         template="plotly_white"
                     )
+                    apply_method_axis_labels(fig_rmsd_heat, "x", common_methods)
                     st.plotly_chart(fig_rmsd_heat, use_container_width=True, config=PLOT_CONFIG)
 
                 # --- 3. Diagnostic Scatter Plots ---
@@ -901,12 +1022,13 @@ def main():
 
                     fig_struct.update_layout(
                         height=800,
-                        title=dict(text=f"结构-能量总览（基准：{benchmark_method}）", font=dict(size=24, family=DISPLAY_FONT_FAMILY, color="black")),
-                        xaxis_title="结构偏差 RMSD (Å)",
-                        yaxis_title="绝对能垒误差 (kcal/mol)",
+                        title=None,
+                        xaxis_title="过渡态结构偏差 RMSD (Å)",
+                        yaxis_title="相对参考层的绝对能垒误差 |ΔE| (kcal/mol)",
                     )
                     fig_struct.update_xaxes(range=[0, x_limit])
                     fig_struct.update_yaxes(range=[0, y_limit])
+                    rename_method_traces(fig_struct)
                     st.plotly_chart(fig_struct, use_container_width=True, config=PLOT_CONFIG)
                 
                 # --- Tab 2: Single Method Diagnostics (Independent Large Plots) ---

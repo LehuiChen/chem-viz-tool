@@ -1,27 +1,35 @@
 from __future__ import annotations
 
 import argparse
-import os
-import tempfile
+import math
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+from matplotlib.ticker import MaxNLocator
 
 
-DISPLAY_FONT_FAMILY = "Microsoft YaHei, SimHei, Arial"
-PREFERRED_BENCHMARK_METHOD = "ωB97X-D"
+DISPLAY_FONT_FAMILY = ["Microsoft YaHei", "SimHei", "Arial", "DejaVu Sans"]
+PREFERRED_BENCHMARK_METHOD = "ωB97X-D/6-31G(d)"
 MISSING_VALUE_MARKERS = ["####", "nan", "NaN", "N/A", "NA", ""]
 METHOD_NAME_ALIASES = {
-    "m062x": "M06-2X",
-    "m06x": "M06-X",
-    "b3lyp": "B3LYP-D3",
-    "b3lypd3": "B3LYP-D3",
-    "wb97xd": "ωB97X-D",
-    "wb97xdd": "ωB97X-D",
-    "ωb97xd": "ωB97X-D",
+    "m062x": "M06-2X/6-31G(d)",
+    "m062x631gd": "M06-2X/6-31G(d)",
+    "b3lyp": "B3LYP-D3/6-31G(d)",
+    "b3lypd3": "B3LYP-D3/6-31G(d)",
+    "b3lypd3631gd": "B3LYP-D3/6-31G(d)",
+    "wb97xd": "ωB97X-D/6-31G(d)",
+    "wb97xdd": "ωB97X-D/6-31G(d)",
+    "wb97xd631gd": "ωB97X-D/6-31G(d)",
+    "ωb97xd": "ωB97X-D/6-31G(d)",
     "gfn2xtb": "GFN2-xTB",
     "xtb": "GFN2-xTB",
     "aiqm2": "AIQM2",
@@ -29,25 +37,120 @@ METHOD_NAME_ALIASES = {
     "maceomol0": "MACE-OMOL-0",
     "orb": "orb_v3_conservative_omol",
     "orbv3conservativeomol": "orb_v3_conservative_omol",
-    "oniom": "ONIOM (AIQM2: GFN2-xTB)",
-    "oniomaiqm2gfn2xtb": "ONIOM (AIQM2: GFN2-xTB)",
+    "oniom": "ONIOM(AIQM2:GFN2-xTB)",
+    "oniomaiqm2gfn2xtb": "ONIOM(AIQM2:GFN2-xTB)",
 }
 META_COLUMNS = ("System", "Reaction", "Original_System", "Source_File")
 THESIS_METHOD_ORDER = [
-    "ωB97X-D",
-    "M06-2X",
-    "B3LYP-D3",
+    "ωB97X-D/6-31G(d)",
+    "M06-2X/6-31G(d)",
+    "B3LYP-D3/6-31G(d)",
     "AIQM2",
     "GFN2-xTB",
-    "ONIOM (AIQM2: GFN2-xTB)",
     "MACE-OMOL-0",
     "orb_v3_conservative_omol",
+    "ONIOM(AIQM2:GFN2-xTB)",
 ]
+METHOD_PLOT_LABELS = {
+    "ωB97X-D/6-31G(d)": "ωB97X-D\n/6-31G(d)",
+    "M06-2X/6-31G(d)": "M06-2X\n/6-31G(d)",
+    "B3LYP-D3/6-31G(d)": "B3LYP-D3\n/6-31G(d)",
+    "AIQM2": "AIQM2",
+    "GFN2-xTB": "GFN2-xTB",
+    "MACE-OMOL-0": "MACE-OMOL-0",
+    "orb_v3_conservative_omol": "orb_v3_\nconservative_omol",
+    "ONIOM(AIQM2:GFN2-xTB)": "ONIOM\n(AIQM2:GFN2-xTB)",
+}
+METHOD_COLOR_MAP = {
+    "ωB97X-D/6-31G(d)": "#2B5B84",
+    "M06-2X/6-31G(d)": "#C94C4C",
+    "B3LYP-D3/6-31G(d)": "#7B6CA8",
+    "AIQM2": "#4C9A7D",
+    "GFN2-xTB": "#D98E32",
+    "MACE-OMOL-0": "#6C7A89",
+    "orb_v3_conservative_omol": "#C96A8A",
+    "ONIOM(AIQM2:GFN2-xTB)": "#5F8F8B",
+}
+METHOD_MARKER_MAP = {
+    "ωB97X-D/6-31G(d)": "o",
+    "M06-2X/6-31G(d)": "s",
+    "B3LYP-D3/6-31G(d)": "^",
+    "AIQM2": "D",
+    "GFN2-xTB": "v",
+    "MACE-OMOL-0": "P",
+    "orb_v3_conservative_omol": "X",
+    "ONIOM(AIQM2:GFN2-xTB)": "h",
+}
+REACTION_SPECS = [
+    {
+        "key": "DA",
+        "display": "狄尔斯–阿尔德(Diels–Alder)",
+        "title": "狄尔斯–阿尔德\n(Diels–Alder)",
+        "stem": "01_diels_alder",
+    },
+    {
+        "key": "4&2",
+        "display": "炔烃Diels–Alder",
+        "title": "炔烃\nDiels–Alder",
+        "stem": "02_alkyne_diels_alder",
+    },
+    {
+        "key": "Click Reaction",
+        "display": "点击反应(Click Reaction)",
+        "title": "点击反应\n(Click Reaction)",
+        "stem": "03_click_reaction",
+    },
+    {
+        "key": "Nucleophilic Addition",
+        "display": "亲核加成反应(Nucleophilic Addition)",
+        "title": "亲核加成反应\n(Nucleophilic Addition)",
+        "stem": "04_nucleophilic_addition",
+    },
+    {
+        "key": "Butterfly Mechanism",
+        "display": "蝴蝶机理(Butterfly Mechanism)",
+        "title": "蝴蝶机理\n(Butterfly Mechanism)",
+        "stem": "05_butterfly_mechanism",
+    },
+]
+DEFAULT_INPUT_ROOT = Path(r"C:\Users\30453\Desktop\中转文件夹")
+DEFAULT_ENERGY_DIR = DEFAULT_INPUT_ROOT / "energy_data"
+DEFAULT_RMSD_DIR = DEFAULT_INPUT_ROOT / "rmsd_data"
+DEFAULT_OUTPUT_DIR = DEFAULT_INPUT_ROOT / "论文绘图输出"
 DEFAULT_RMSD_THRESHOLD = 0.10
 DEFAULT_ENERGY_THRESHOLD = 1.00
-EXPORT_WIDTH = 1800
-EXPORT_HEIGHT = 1100
-EXPORT_SCALE = 3
+PNG_DPI = 600
+PDF_DPI = 300
+RNG = np.random.default_rng(20260420)
+
+
+def apply_publication_style() -> None:
+    """Apply publication-oriented defaults inspired by figures4papers."""
+    plt.style.use("default")
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": DISPLAY_FONT_FAMILY,
+            "axes.unicode_minus": False,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "figure.dpi": 160,
+            "savefig.dpi": PNG_DPI,
+            "savefig.facecolor": "white",
+            "savefig.bbox": "tight",
+            "axes.linewidth": 1.1,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.labelsize": 15,
+            "axes.titlesize": 15,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "legend.fontsize": 10.5,
+            "legend.frameon": False,
+            "grid.linewidth": 0.6,
+            "grid.alpha": 0.28,
+        }
+    )
 
 
 def normalize_method_name(column_name: str) -> str:
@@ -60,9 +163,14 @@ def normalize_method_name(column_name: str) -> str:
         .replace(" ", "")
         .replace("(", "")
         .replace(")", "")
+        .replace("（", "")
+        .replace("）", "")
         .replace(":", "")
         .replace("：", "")
         .replace("+", "")
+        .replace("/", "")
+        .replace("／", "")
+        .replace(",", "")
     )
     return METHOD_NAME_ALIASES.get(alias_key, normalized)
 
@@ -72,7 +180,7 @@ def coalesce_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     for idx, column_name in enumerate(df.columns):
         current_series = df.iloc[:, idx]
         if column_name in merged.columns:
-            # 中文注释：论文导图需要稳定方法命名；这里先合并同名列，避免后续画图时重复图例。
+            # 中文注释：原始表头命名不完全统一，先合并重复方法列，避免导图统计重复或覆盖。
             merged[column_name] = merged[column_name].combine_first(current_series)
         else:
             merged[column_name] = current_series
@@ -119,7 +227,7 @@ def load_data(file_path: Path, dataset_label: str | None = None, add_dataset_pre
     df["Source_File"] = file_path.name
 
     if add_dataset_prefix and dataset_label:
-        # 中文注释：不同反应文件里常有同名体系，导图时必须确保 System 全局唯一。
+        # 中文注释：多个反应文件拼接时必须保证 System 全局唯一，否则不同反应的同名体系会串行。
         df["System"] = df["Reaction"] + " | " + df["Original_System"]
 
     method_cols = [col for col in df.columns if col not in META_COLUMNS]
@@ -171,6 +279,11 @@ def load_directory_dataset(data_dir: Path) -> pd.DataFrame:
     return combined[meta_columns + method_columns]
 
 
+def sort_methods(methods: list[str]) -> list[str]:
+    order_map = {name: idx for idx, name in enumerate(THESIS_METHOD_ORDER)}
+    return sorted(methods, key=lambda item: (order_map.get(item, len(order_map)), item.lower()))
+
+
 def get_method_columns(df: pd.DataFrame | None) -> list[str]:
     if df is None:
         return []
@@ -181,11 +294,6 @@ def get_method_columns(df: pd.DataFrame | None) -> list[str]:
     return sort_methods(methods)
 
 
-def sort_methods(methods: list[str]) -> list[str]:
-    order_map = {name: idx for idx, name in enumerate(THESIS_METHOD_ORDER)}
-    return sorted(methods, key=lambda item: (order_map.get(item, len(order_map)), item.lower()))
-
-
 def get_default_benchmark_method(methods: list[str]) -> str:
     if PREFERRED_BENCHMARK_METHOD in methods:
         return PREFERRED_BENCHMARK_METHOD
@@ -194,394 +302,725 @@ def get_default_benchmark_method(methods: list[str]) -> str:
     return methods[0]
 
 
-def format_heatmap_value(value: float, digits: int = 2, signed: bool = False) -> str:
+def get_reaction_spec(reaction_key: str) -> dict[str, str]:
+    for spec in REACTION_SPECS:
+        if spec["key"].casefold() == str(reaction_key).casefold():
+            return spec
+    raise KeyError(f"未定义反应标签: {reaction_key}")
+
+
+def get_reaction_subset(df: pd.DataFrame, reaction_key: str) -> pd.DataFrame:
+    subset = df[df["Reaction"].astype(str).str.casefold() == reaction_key.casefold()].copy()
+    if subset.empty:
+        raise ValueError(f"未在数据中找到反应类型 {reaction_key!r}。")
+    return subset
+
+
+def get_display_systems(df: pd.DataFrame) -> pd.Series:
+    if "Original_System" in df.columns:
+        return df["Original_System"].astype(str)
+    return df["System"].astype(str)
+
+
+def format_value(value: float, digits: int = 2, signed: bool = False) -> str:
     if pd.isna(value):
         return "-"
     return f"{value:+.{digits}f}" if signed else f"{value:.{digits}f}"
 
 
-def apply_thesis_style(fig: go.Figure, *, height: int | None = None) -> go.Figure:
-    fig.update_layout(
-        template="simple_white",
-        autosize=True,
-        font=dict(family=DISPLAY_FONT_FAMILY, size=20, color="black"),
-        title_font=dict(family=DISPLAY_FONT_FAMILY, size=30, color="black"),
-        margin=dict(l=80, r=50, t=90, b=80),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="center",
-            x=0.5,
-            title_text="",
-            font=dict(family=DISPLAY_FONT_FAMILY, size=18),
-            bordercolor="white",
-            borderwidth=0,
-            bgcolor="rgba(0,0,0,0)",
-        ),
+def with_alpha(hex_color: str, alpha: float) -> tuple[float, float, float, float]:
+    red, green, blue = mcolors.to_rgb(hex_color)
+    return red, green, blue, alpha
+
+
+def make_figure_canvas(
+    *,
+    nrows: int = 1,
+    ncols: int = 1,
+    figsize: tuple[float, float] = (10.0, 6.0),
+    gridspec_kw: dict | None = None,
+    sharex: bool = False,
+    sharey: bool = False,
+    polar: bool = False,
+):
+    subplot_kw = {"polar": polar} if polar else None
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=figsize,
+        gridspec_kw=gridspec_kw,
+        sharex=sharex,
+        sharey=sharey,
+        subplot_kw=subplot_kw,
     )
-    fig.update_xaxes(
-        title_font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
-        tickfont=dict(family=DISPLAY_FONT_FAMILY, size=18, color="black"),
-        showline=True,
-        linewidth=1.5,
-        linecolor="black",
-        mirror=True,
-        ticks="inside",
-        tickwidth=1.5,
-        ticklen=5,
-        tickcolor="black",
-        showgrid=False,
-        zeroline=False,
-    )
-    fig.update_yaxes(
-        title_font=dict(family=DISPLAY_FONT_FAMILY, size=24, color="black"),
-        tickfont=dict(family=DISPLAY_FONT_FAMILY, size=18, color="black"),
-        showline=True,
-        linewidth=1.5,
-        linecolor="black",
-        mirror=True,
-        ticks="inside",
-        tickwidth=1.5,
-        ticklen=5,
-        tickcolor="black",
-        showgrid=False,
-        zeroline=False,
-    )
-    if height is not None:
-        fig.update_layout(height=height)
-    return fig
+    return fig, axes
 
 
-def get_reaction_subset(df: pd.DataFrame, reaction_label: str) -> pd.DataFrame:
-    subset = df[df["Reaction"].astype(str).str.casefold() == reaction_label.casefold()].copy()
-    if subset.empty:
-        raise ValueError(f"未在数据中找到反应类型 {reaction_label!r}。")
-    return subset
+def build_method_handles(methods: list[str]) -> list[Line2D]:
+    handles = []
+    for method_name in methods:
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=METHOD_COLOR_MAP.get(method_name, "#444444"),
+                marker=METHOD_MARKER_MAP.get(method_name, "o"),
+                linestyle="-",
+                linewidth=2.0,
+                markersize=6.5,
+                label=METHOD_PLOT_LABELS.get(method_name, method_name),
+            )
+        )
+    return handles
 
 
-def build_figure_4_1(df_energy: pd.DataFrame, benchmark_method: str) -> go.Figure:
-    da_energy = get_reaction_subset(df_energy, "DA")
-    methods = get_method_columns(da_energy)
-    da_energy = da_energy.dropna(subset=[benchmark_method]).sort_values(by=benchmark_method).reset_index(drop=True)
-    da_energy["样本排序序号"] = np.arange(1, len(da_energy) + 1)
-    trend_data = da_energy.melt(
-        id_vars=["System", "样本排序序号"],
-        value_vars=methods,
-        var_name="Method",
-        value_name="Energy",
-    ).dropna(subset=["Energy"])
-
-    fig = px.line(
-        trend_data,
-        x="样本排序序号",
-        y="Energy",
-        color="Method",
-        markers=True,
-        hover_name="System",
-        color_discrete_sequence=px.colors.qualitative.G10,
-    )
-    fig = apply_thesis_style(fig, height=900)
-    fig.update_traces(marker=dict(size=8), line=dict(width=2.5))
-    fig.update_traces(selector=dict(name=benchmark_method), line=dict(width=5))
-    fig.update_layout(
-        title=dict(text="图4-1 Diels–Alder 体系能垒排序趋势图"),
-        xaxis_title=f"按 {benchmark_method} 排序的样本序号",
-        yaxis_title="能垒 (kcal/mol)",
-    )
-    return fig
-
-
-def build_figure_4_2(df_energy: pd.DataFrame, benchmark_method: str) -> go.Figure:
-    da_energy = get_reaction_subset(df_energy, "DA")
-    methods = [method for method in get_method_columns(da_energy) if method != benchmark_method]
-    abs_error = da_energy.set_index("System")[methods].sub(
-        da_energy.set_index("System")[benchmark_method],
+def build_error_tables(df_energy: pd.DataFrame, benchmark_method: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    methods = [method for method in get_method_columns(df_energy) if method != benchmark_method]
+    signed_error = df_energy.set_index("System")[methods].sub(
+        df_energy.set_index("System")[benchmark_method],
         axis=0,
-    ).abs()
-    abs_error_melt = abs_error.reset_index().melt(
-        id_vars="System",
-        var_name="Method",
-        value_name="Absolute_Energy_Error",
-    ).dropna(subset=["Absolute_Energy_Error"])
-
-    fig = px.box(
-        abs_error_melt,
-        x="Method",
-        y="Absolute_Energy_Error",
-        color="Method",
-        points="all",
-        color_discrete_sequence=px.colors.qualitative.G10,
     )
-    fig = apply_thesis_style(fig, height=900)
-    fig.update_traces(marker=dict(opacity=0.65, size=6, line=dict(width=0)), jitter=0.35)
-    fig.add_hline(y=1.0, line_dash="dash", line_color="red", annotation_text="1 kcal/mol")
-    fig.update_layout(
-        title=dict(text="图4-2 Diels–Alder 体系绝对误差分布图"),
-        xaxis_title="计算方法",
-        yaxis_title="绝对误差 |ΔE| (kcal/mol)",
-    )
-    return fig
+    abs_error = signed_error.abs()
+    return signed_error, abs_error
 
 
-def build_figure_4_3(df_energy: pd.DataFrame) -> go.Figure:
-    da_energy = get_reaction_subset(df_energy, "DA")
-    methods = get_method_columns(da_energy)
-    corr_matrix = da_energy[methods].corr().round(2)
-    mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
-    lower_triangle = corr_matrix.where(~mask, np.nan)
+def annotate_heatmap(
+    ax: plt.Axes,
+    matrix: np.ndarray,
+    *,
+    digits: int = 2,
+    signed: bool = False,
+    white_threshold: float | None = None,
+    fontsize: float = 7.0,
+) -> None:
+    for row_idx in range(matrix.shape[0]):
+        for col_idx in range(matrix.shape[1]):
+            value = matrix[row_idx, col_idx]
+            text = format_value(value, digits=digits, signed=signed)
+            text_color = "black"
+            if white_threshold is not None and not np.isnan(value) and abs(value) >= white_threshold:
+                text_color = "white"
+            ax.text(
+                col_idx,
+                row_idx,
+                text,
+                ha="center",
+                va="center",
+                fontsize=fontsize,
+                color=text_color,
+            )
 
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=lower_triangle.values,
-            x=lower_triangle.columns,
-            y=lower_triangle.index,
-            colorscale="RdBu_r",
-            zmid=0,
-            zmin=-1,
-            zmax=1,
-            xgap=2,
-            ygap=2,
-            text=[[format_heatmap_value(value, digits=2) for value in row] for row in lower_triangle.values],
-            texttemplate="%{text}",
-            colorbar=dict(title="Pearson R", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
+
+def finalize_figure(fig: plt.Figure, output_stem: Path, formats: list[str]) -> list[Path]:
+    output_paths = []
+    for image_format in formats:
+        output_path = output_stem.with_suffix(f".{image_format}")
+        save_kwargs = {
+            "facecolor": "white",
+            "bbox_inches": "tight",
+            "pad_inches": 0.08,
+        }
+        if image_format == "png":
+            save_kwargs["dpi"] = PNG_DPI
+        else:
+            save_kwargs["dpi"] = PDF_DPI
+        fig.savefig(output_path, **save_kwargs)
+        output_paths.append(output_path)
+    plt.close(fig)
+    return output_paths
+
+
+def make_barrier_trend_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, str], benchmark_method: str) -> plt.Figure:
+    methods = get_method_columns(df_energy)
+    ordered = df_energy.dropna(subset=[benchmark_method]).sort_values(by=benchmark_method).reset_index(drop=True)
+    ordered["RankIndex"] = np.arange(1, len(ordered) + 1)
+
+    fig, ax = make_figure_canvas(figsize=(13.2, 6.6))
+    for method_name in methods:
+        series = ordered[method_name].to_numpy(dtype=float)
+        ax.plot(
+            ordered["RankIndex"],
+            series,
+            color=METHOD_COLOR_MAP.get(method_name, "#444444"),
+            marker=METHOD_MARKER_MAP.get(method_name, "o"),
+            linewidth=2.8 if method_name == benchmark_method else 1.9,
+            markersize=4.1 if method_name == benchmark_method else 3.6,
+            alpha=0.98 if method_name == benchmark_method else 0.86,
+            label=METHOD_PLOT_LABELS.get(method_name, method_name),
         )
-    )
-    fig = apply_thesis_style(fig, height=max(750, len(methods) * 100))
-    fig.update_layout(
-        title=dict(text="图4-3 方法间能垒相关性矩阵"),
-        xaxis_title="计算方法",
-        yaxis_title="计算方法",
-    )
+
+    ax.set_xlabel(f"按{benchmark_method} 能垒从低到高排序的{reaction_spec['display']}体系序号")
+    ax.set_ylabel("反应能垒 Ea (kcal/mol)")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=12))
+    ax.grid(axis="y")
+    ax.margins(x=0.02)
+    fig.subplots_adjust(left=0.09, right=0.76, bottom=0.18, top=0.98)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.01), handlelength=2.2)
     return fig
 
 
-def build_figure_5_1(df_rmsd: pd.DataFrame) -> go.Figure:
-    da_rmsd = get_reaction_subset(df_rmsd, "DA")
-    methods = get_method_columns(da_rmsd)
-    da_rmsd = da_rmsd.set_index("System")[methods]
+def make_absolute_error_distribution_figure(
+    df_energy: pd.DataFrame,
+    reaction_spec: dict[str, str],
+    benchmark_method: str,
+) -> plt.Figure:
+    _, abs_error = build_error_tables(df_energy, benchmark_method)
+    methods = list(abs_error.columns)
+    data_arrays = [abs_error[method_name].dropna().to_numpy() for method_name in methods]
 
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=da_rmsd.values,
-            x=da_rmsd.columns,
-            y=da_rmsd.index,
-            colorscale="Blues",
-            xgap=2,
-            ygap=2,
-            text=[[format_heatmap_value(value, digits=3) for value in row] for row in da_rmsd.values],
-            texttemplate="%{text}",
-            colorbar=dict(title="RMSD (Å)", outlinecolor="black", outlinewidth=1, borderwidth=1, ticks="outside"),
+    fig, ax = make_figure_canvas(figsize=(12.2, 6.3))
+    boxplot = ax.boxplot(
+        data_arrays,
+        patch_artist=True,
+        widths=0.55,
+        showfliers=False,
+        medianprops=dict(color="#1f1f1f", linewidth=1.6),
+        whiskerprops=dict(color="#4f4f4f", linewidth=1.2),
+        capprops=dict(color="#4f4f4f", linewidth=1.2),
+    )
+
+    for patch, method_name in zip(boxplot["boxes"], methods):
+        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
+        patch.set_facecolor(with_alpha(color, 0.30))
+        patch.set_edgecolor(color)
+        patch.set_linewidth(1.6)
+
+    for idx, method_name in enumerate(methods, start=1):
+        values = abs_error[method_name].dropna().to_numpy()
+        if values.size == 0:
+            continue
+        jitter = RNG.normal(loc=idx, scale=0.045, size=values.size)
+        ax.scatter(
+            jitter,
+            values,
+            s=16,
+            color=METHOD_COLOR_MAP.get(method_name, "#4f4f4f"),
+            alpha=0.70,
+            linewidths=0.0,
+            zorder=3,
         )
+
+    ax.axhline(
+        1.0,
+        color="#8C1C13",
+        linestyle="--",
+        linewidth=1.4,
     )
-    fig = apply_thesis_style(fig, height=max(900, len(da_rmsd.index) * 40))
-    fig.update_layout(
-        title=dict(text="图5-1 过渡态结构 RMSD 热力图"),
-        xaxis_title="计算方法",
-        yaxis_title="体系",
-    )
+    ax.text(0.55, 1.08, "1.0 kcal/mol 参考线", color="#8C1C13", fontsize=10.5, va="bottom")
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)")
+    ax.set_xticks(range(1, len(methods) + 1))
+    ax.set_xticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+    ax.grid(axis="y")
+    ax.set_xlim(0.4, len(methods) + 0.6)
+    ax.set_ylim(bottom=0.0)
+    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.22, top=0.98)
     return fig
 
 
-def build_figure_5_4(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame, benchmark_method: str) -> go.Figure:
+def make_error_heatmap_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, str], benchmark_method: str) -> plt.Figure:
+    sorted_df = df_energy.dropna(subset=[benchmark_method]).sort_values(by=benchmark_method).reset_index(drop=True)
+    signed_error, _ = build_error_tables(sorted_df, benchmark_method)
+    systems = get_display_systems(sorted_df).tolist()
+    methods = list(signed_error.columns)
+
+    matrix = signed_error.to_numpy(dtype=float)
+    color_limit = np.nanmax(np.abs(matrix)) if np.isfinite(matrix).any() else 1.0
+    color_limit = max(float(color_limit), 1.0)
+
+    fig_height = max(7.0, 2.0 + 0.18 * len(systems))
+    fig, ax = make_figure_canvas(figsize=(10.6, fig_height))
+    cmap = plt.get_cmap("RdBu_r").copy()
+    cmap.set_bad("#F2F2F2")
+    masked = np.ma.masked_invalid(matrix)
+    norm = mcolors.TwoSlopeNorm(vmin=-color_limit, vcenter=0.0, vmax=color_limit)
+    image = ax.imshow(masked, cmap=cmap, norm=norm, aspect="auto")
+
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel(f"{reaction_spec['display']}体系")
+    ax.set_xticks(np.arange(len(methods)))
+    ax.set_xticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+    ax.set_yticks(np.arange(len(systems)))
+    ax.set_yticklabels(systems, fontsize=8 if len(systems) > 35 else 9)
+
+    ax.set_xticks(np.arange(-0.5, len(methods), 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(systems), 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=0.8)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    # 中文注释：当行数太多时强行写满数值会明显降低可读性，因此仅在行数较少时显示单元格文字。
+    if len(systems) <= 35:
+        annotate_heatmap(
+            ax,
+            matrix,
+            digits=2,
+            signed=True,
+            white_threshold=color_limit * 0.45,
+            fontsize=6.8,
+        )
+
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.030, pad=0.02)
+    colorbar.set_label("相对参考层的能垒误差 ΔE (kcal/mol)")
+    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.10, top=0.99)
+    return fig
+
+
+def make_correlation_matrix_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, str]) -> plt.Figure:
+    methods = get_method_columns(df_energy)
+    corr_matrix = df_energy[methods].corr(min_periods=2).to_numpy(dtype=float)
+
+    fig, ax = make_figure_canvas(figsize=(8.6, 7.6))
+    cmap = plt.get_cmap("RdBu_r").copy()
+    cmap.set_bad("#F2F2F2")
+    masked = np.ma.masked_invalid(corr_matrix)
+    image = ax.imshow(masked, cmap=cmap, vmin=-1.0, vmax=1.0)
+
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel("计算方法")
+    ax.set_xticks(np.arange(len(methods)))
+    ax.set_yticks(np.arange(len(methods)))
+    ax.set_xticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods], rotation=35, ha="right")
+    ax.set_yticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+
+    annotate_heatmap(ax, corr_matrix, digits=2, signed=False, white_threshold=0.55, fontsize=8.2)
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
+    colorbar.set_label("Pearson 相关系数 r")
+    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.22, top=0.98)
+    return fig
+
+
+def build_structure_energy_dataset(
+    df_energy: pd.DataFrame,
+    df_rmsd: pd.DataFrame,
+    benchmark_method: str,
+) -> pd.DataFrame:
     energy_methods = get_method_columns(df_energy)
-    common_methods = [method for method in get_method_columns(df_rmsd) if method in energy_methods and method != benchmark_method]
+    rmsd_methods = get_method_columns(df_rmsd)
+    common_methods = [method_name for method_name in rmsd_methods if method_name in energy_methods and method_name != benchmark_method]
     if not common_methods:
-        raise ValueError("能垒数据与 RMSD 数据之间没有可用于结构-能量分析的共同方法列。")
+        raise ValueError("能垒与 RMSD 数据之间没有共同的可比较方法列。")
 
-    df_energy_long = df_energy.melt(
-        id_vars="System",
+    energy_long = df_energy.melt(
+        id_vars=[column for column in META_COLUMNS if column in df_energy.columns],
         value_vars=common_methods,
         var_name="Method",
         value_name="Energy",
     )
-    df_rmsd_long = df_rmsd.melt(
-        id_vars="System",
+    rmsd_long = df_rmsd.melt(
+        id_vars=[column for column in META_COLUMNS if column in df_rmsd.columns],
         value_vars=common_methods,
         var_name="Method",
         value_name="RMSD",
     )
-    df_merged = pd.merge(df_energy_long, df_rmsd_long, on=["System", "Method"], how="inner")
-    df_merged = df_merged.dropna(subset=["Energy", "RMSD"])
-    df_merged["Bench_Energy"] = df_merged["System"].map(df_energy.set_index("System")[benchmark_method].to_dict())
-    df_merged["AbsError"] = (df_merged["Energy"] - df_merged["Bench_Energy"]).abs()
-    df_merged = df_merged.dropna(subset=["Bench_Energy", "AbsError"])
-
-    fig = px.scatter(
-        df_merged,
-        x="RMSD",
-        y="AbsError",
-        color="Method",
-        hover_name="System",
-        color_discrete_sequence=px.colors.qualitative.G10,
+    merged = pd.merge(
+        energy_long,
+        rmsd_long,
+        on=["System", "Method"],
+        how="inner",
+        suffixes=("_energy", "_rmsd"),
     )
-    fig = apply_thesis_style(fig, height=950)
-    fig.update_traces(marker=dict(size=11, opacity=0.82, line=dict(width=1, color="black")))
+    merged = merged.dropna(subset=["Energy", "RMSD"])
+    merged["Reaction"] = merged["Reaction_energy"].combine_first(merged.get("Reaction_rmsd"))
+    merged["Original_System"] = merged["Original_System_energy"].combine_first(merged.get("Original_System_rmsd"))
 
-    max_x = max(df_merged["RMSD"].max() * 1.1, DEFAULT_RMSD_THRESHOLD * 1.6)
-    max_y = max(df_merged["AbsError"].max() * 1.1, DEFAULT_ENERGY_THRESHOLD * 1.6)
+    benchmark_map = df_energy.set_index("System")[benchmark_method].to_dict()
+    merged["BenchmarkEnergy"] = merged["System"].map(benchmark_map)
+    merged["AbsError"] = (merged["Energy"] - merged["BenchmarkEnergy"]).abs()
+    merged = merged.dropna(subset=["BenchmarkEnergy", "AbsError", "Reaction"])
+    return merged
 
-    fig.add_shape(type="rect", x0=0, x1=DEFAULT_RMSD_THRESHOLD, y0=0, y1=DEFAULT_ENERGY_THRESHOLD, fillcolor="#e8f4e5", opacity=0.28, line_width=0, layer="below")
-    fig.add_shape(type="rect", x0=0, x1=DEFAULT_RMSD_THRESHOLD, y0=DEFAULT_ENERGY_THRESHOLD, y1=max_y, fillcolor="#fff9e6", opacity=0.28, line_width=0, layer="below")
-    fig.add_shape(type="rect", x0=DEFAULT_RMSD_THRESHOLD, x1=max_x, y0=0, y1=max_y, fillcolor="#fde8e8", opacity=0.28, line_width=0, layer="below")
-    fig.add_vline(x=DEFAULT_RMSD_THRESHOLD, line_dash="dash", line_color="black", annotation_text="RMSD 阈值", annotation_position="top right")
-    fig.add_hline(y=DEFAULT_ENERGY_THRESHOLD, line_dash="dash", line_color="black", annotation_text="能量阈值", annotation_position="top right")
 
-    fig.update_layout(
-        title=dict(text="图5-4 结构误差与能量误差对应关系图"),
-        xaxis_title="结构偏差 RMSD (Å)",
-        yaxis_title="绝对能垒误差 |ΔE| (kcal/mol)",
+def add_structure_energy_zones(ax: plt.Axes, x_limit: float, y_limit: float) -> None:
+    ax.add_patch(
+        Rectangle(
+            (0.0, 0.0),
+            DEFAULT_RMSD_THRESHOLD,
+            DEFAULT_ENERGY_THRESHOLD,
+            facecolor=with_alpha("#DFF2E1", 0.90),
+            edgecolor="none",
+            zorder=0,
+        )
     )
-    fig.update_xaxes(range=[0, max_x])
-    fig.update_yaxes(range=[0, max_y])
+    ax.add_patch(
+        Rectangle(
+            (0.0, DEFAULT_ENERGY_THRESHOLD),
+            DEFAULT_RMSD_THRESHOLD,
+            y_limit - DEFAULT_ENERGY_THRESHOLD,
+            facecolor=with_alpha("#FFF3D6", 0.80),
+            edgecolor="none",
+            zorder=0,
+        )
+    )
+    ax.add_patch(
+        Rectangle(
+            (DEFAULT_RMSD_THRESHOLD, 0.0),
+            x_limit - DEFAULT_RMSD_THRESHOLD,
+            y_limit,
+            facecolor=with_alpha("#FBE4E6", 0.72),
+            edgecolor="none",
+            zorder=0,
+        )
+    )
+    ax.axvline(DEFAULT_RMSD_THRESHOLD, color="#666666", linewidth=1.2, linestyle="--")
+    ax.axhline(DEFAULT_ENERGY_THRESHOLD, color="#666666", linewidth=1.2, linestyle="--")
+
+
+def make_cross_reaction_structure_energy_figure(
+    df_energy: pd.DataFrame,
+    df_rmsd: pd.DataFrame,
+    benchmark_method: str,
+) -> plt.Figure:
+    merged = build_structure_energy_dataset(df_energy, df_rmsd, benchmark_method)
+    present_specs = [spec for spec in REACTION_SPECS if spec["key"] in set(merged["Reaction"])]
+    methods = [method_name for method_name in sort_methods(merged["Method"].dropna().unique().tolist())]
+    x_limit = max(DEFAULT_RMSD_THRESHOLD * 1.9, float(merged["RMSD"].max()) * 1.08)
+    y_limit = max(DEFAULT_ENERGY_THRESHOLD * 1.9, float(merged["AbsError"].max()) * 1.08)
+
+    fig, axes = make_figure_canvas(
+        nrows=2,
+        ncols=3,
+        figsize=(15.2, 8.8),
+        gridspec_kw={"width_ratios": [1.0, 1.0, 0.90], "height_ratios": [1.0, 1.0]},
+        sharex=True,
+        sharey=True,
+    )
+    axes_grid = np.asarray(axes)
+    panel_axes = [
+        axes_grid[0, 0],
+        axes_grid[0, 1],
+        axes_grid[0, 2],
+        axes_grid[1, 0],
+        axes_grid[1, 1],
+    ]
+    legend_ax = axes_grid[1, 2]
+
+    for ax, spec in zip(panel_axes, present_specs):
+        subset = merged[merged["Reaction"].astype(str).str.casefold() == spec["key"].casefold()].copy()
+        add_structure_energy_zones(ax, x_limit, y_limit)
+        for method_name in methods:
+            method_subset = subset[subset["Method"] == method_name]
+            if method_subset.empty:
+                continue
+            ax.scatter(
+                method_subset["RMSD"],
+                method_subset["AbsError"],
+                s=28,
+                color=METHOD_COLOR_MAP.get(method_name, "#4f4f4f"),
+                marker=METHOD_MARKER_MAP.get(method_name, "o"),
+                edgecolors="white",
+                linewidths=0.35,
+                alpha=0.84,
+                zorder=3,
+            )
+        ax.set_title(spec["title"])
+        ax.set_xlim(0.0, x_limit)
+        ax.set_ylim(0.0, y_limit)
+        ax.grid(axis="both")
+
+    for unused_ax in panel_axes[len(present_specs):]:
+        unused_ax.axis("off")
+
+    handles = build_method_handles(methods)
+    legend_ax.axis("off")
+    legend_ax.legend(
+        handles=handles,
+        loc="upper left",
+        bbox_to_anchor=(0.0, 1.02),
+        fontsize=10.0,
+        handlelength=1.8,
+        labelspacing=0.65,
+        borderaxespad=0.0,
+    )
+    legend_ax.text(
+        0.02,
+        0.02,
+        "虚线阈值：RMSD = 0.10 Å\n|ΔE| = 1.0 kcal/mol",
+        transform=legend_ax.transAxes,
+        fontsize=10.0,
+        va="bottom",
+    )
+
+    fig.supxlabel("过渡态结构偏差 RMSD (Å)", y=0.04)
+    fig.supylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)", x=0.04)
+    fig.subplots_adjust(left=0.08, right=0.98, bottom=0.11, top=0.94, wspace=0.24, hspace=0.28)
     return fig
 
 
-def build_figure_6_1(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | None, benchmark_method: str) -> go.Figure:
-    energy_methods = [method for method in get_method_columns(df_energy) if method != benchmark_method]
-    energy_rows = []
-    for method_name in energy_methods:
-        pair_df = df_energy[["System", benchmark_method, method_name]].dropna(subset=[benchmark_method, method_name]).copy()
+def make_cross_reaction_mae_heatmap(df_energy: pd.DataFrame, benchmark_method: str) -> plt.Figure:
+    plot_methods = [method_name for method_name in get_method_columns(df_energy) if method_name != benchmark_method]
+    matrix = []
+    y_labels = []
+    for spec in REACTION_SPECS:
+        subset = get_reaction_subset(df_energy, spec["key"])
+        _, abs_error = build_error_tables(subset, benchmark_method)
+        row_values = []
+        for method_name in plot_methods:
+            method_values = abs_error[method_name].dropna()
+            row_values.append(method_values.mean() if not method_values.empty else np.nan)
+        matrix.append(row_values)
+        y_labels.append(spec["display"])
+
+    matrix_array = np.asarray(matrix, dtype=float)
+    fig, ax = make_figure_canvas(figsize=(10.8, 5.4))
+    cmap = plt.get_cmap("YlOrRd").copy()
+    cmap.set_bad("#F2F2F2")
+    masked = np.ma.masked_invalid(matrix_array)
+    image = ax.imshow(masked, cmap=cmap, aspect="auto")
+
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel("反应类型")
+    ax.set_xticks(np.arange(len(plot_methods)))
+    ax.set_xticklabels(
+        [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in plot_methods],
+        rotation=15,
+        ha="right",
+        rotation_mode="anchor",
+    )
+    ax.set_yticks(np.arange(len(y_labels)))
+    ax.set_yticklabels(y_labels)
+    annotate_heatmap(ax, matrix_array, digits=2, signed=False, white_threshold=np.nanmax(matrix_array) * 0.65, fontsize=9.2)
+
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
+    colorbar.set_label("平均绝对能垒误差 MAE (kcal/mol)")
+    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.26, top=0.98)
+    return fig
+
+
+def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | None, benchmark_method: str) -> plt.Figure:
+    plot_methods = [method_name for method_name in get_method_columns(df_energy) if method_name != benchmark_method]
+    metric_rows = []
+    for method_name in plot_methods:
+        pair_df = df_energy[[benchmark_method, method_name]].dropna(subset=[benchmark_method, method_name]).copy()
         if len(pair_df) < 2:
             continue
         diff = pair_df[method_name] - pair_df[benchmark_method]
         corr_value = pair_df[benchmark_method].corr(pair_df[method_name])
-        energy_rows.append(
+        metric_rows.append(
             {
                 "Method": method_name,
                 "MAE": diff.abs().mean(),
                 "RMSE": np.sqrt((diff ** 2).mean()),
-                "MaxError": diff.abs().max(),
                 "R2": 0.0 if pd.isna(corr_value) else corr_value ** 2,
             }
         )
 
-    if not energy_rows:
-        raise ValueError("有效配对数据不足，无法生成综合雷达图。")
+    if not metric_rows:
+        raise ValueError("有效配对样本不足，无法生成综合性能雷达图。")
 
-    df_metrics = pd.DataFrame(energy_rows)
-    df_scores = df_metrics.copy()
+    metrics_df = pd.DataFrame(metric_rows)
+    scores_df = metrics_df.copy()
+    for column_name in ["MAE", "RMSE"]:
+        min_value = metrics_df[column_name].min()
+        max_value = metrics_df[column_name].max()
+        scores_df[column_name] = 1.0 if max_value == min_value else (max_value - metrics_df[column_name]) / (max_value - min_value)
 
-    for col in ["MAE", "RMSE", "MaxError"]:
-        mn, mx = df_metrics[col].min(), df_metrics[col].max()
-        df_scores[col] = 1.0 if mx == mn else (mx - df_metrics[col]) / (mx - mn)
-
-    mn_r2, mx_r2 = df_metrics["R2"].min(), df_metrics["R2"].max()
-    df_scores["R2"] = 1.0 if mx_r2 == mn_r2 else (df_metrics["R2"] - mn_r2) / (mx_r2 - mn_r2)
-    df_scores["EnergyScore"] = df_scores[["MAE", "RMSE", "MaxError", "R2"]].mean(axis=1)
+    r2_min = metrics_df["R2"].min()
+    r2_max = metrics_df["R2"].max()
+    scores_df["R2"] = 1.0 if r2_max == r2_min else (metrics_df["R2"] - r2_min) / (r2_max - r2_min)
+    scores_df["EnergyScore"] = scores_df[["MAE", "RMSE", "R2"]].mean(axis=1)
 
     if df_rmsd is not None:
         rmsd_rows = []
-        for method_name in df_scores["Method"]:
-            if method_name in get_method_columns(df_rmsd):
-                method_rmsd = df_rmsd[method_name].dropna()
-                if not method_rmsd.empty:
-                    rmsd_rows.append({"Method": method_name, "MeanRMSD": method_rmsd.mean()})
+        rmsd_methods = set(get_method_columns(df_rmsd))
+        for method_name in scores_df["Method"]:
+            if method_name not in rmsd_methods:
+                continue
+            method_rmsd = df_rmsd[method_name].dropna()
+            if not method_rmsd.empty:
+                rmsd_rows.append({"Method": method_name, "MeanRMSD": method_rmsd.mean()})
         if rmsd_rows:
-            df_scores = df_scores.merge(pd.DataFrame(rmsd_rows), on="Method", how="left")
+            scores_df = scores_df.merge(pd.DataFrame(rmsd_rows), on="Method", how="left")
 
-    if "MeanRMSD" in df_scores.columns and df_scores["MeanRMSD"].notna().all():
-        mn_rmsd, mx_rmsd = df_scores["MeanRMSD"].min(), df_scores["MeanRMSD"].max()
-        df_scores["StructureScore"] = 1.0 if mx_rmsd == mn_rmsd else (mx_rmsd - df_scores["MeanRMSD"]) / (mx_rmsd - mn_rmsd)
+    if "MeanRMSD" in scores_df.columns and scores_df["MeanRMSD"].notna().all():
+        rmsd_min = scores_df["MeanRMSD"].min()
+        rmsd_max = scores_df["MeanRMSD"].max()
+        scores_df["StructureScore"] = (
+            1.0 if rmsd_max == rmsd_min else (rmsd_max - scores_df["MeanRMSD"]) / (rmsd_max - rmsd_min)
+        )
     else:
-        # 中文注释：论文当前没有独立效率数据，结构维度又不能缺失；若 RMSD 不完整，就退化成纯能量评分。
-        df_scores["StructureScore"] = df_scores["EnergyScore"]
+        # 中文注释：若结构数据不完整，则退化为能量主导得分，避免雷达图出现断边。
+        scores_df["StructureScore"] = scores_df["EnergyScore"]
 
-    df_scores["OverallScore"] = df_scores[["EnergyScore", "StructureScore"]].mean(axis=1)
+    scores_df["OverallScore"] = scores_df[["EnergyScore", "StructureScore"]].mean(axis=1)
+    order_map = {method_name: idx for idx, method_name in enumerate(THESIS_METHOD_ORDER)}
+    scores_df = scores_df.sort_values(by="Method", key=lambda series: series.map(order_map).fillna(len(order_map)))
 
-    categories = ["能量精度", "结构精度", "总体表现"]
-    fig = go.Figure()
-    fig = apply_thesis_style(fig, height=900)
-    fig.update_layout(colorway=px.colors.qualitative.G10)
+    categories = ["能垒准确性", "结构准确性", "综合表现"]
+    angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False)
+    angles = np.concatenate([angles, [angles[0]]])
 
-    for _, row in df_scores.iterrows():
-        values = [row["EnergyScore"], row["StructureScore"], row["OverallScore"]]
-        values += [values[0]]
-        fig.add_trace(
-            go.Scatterpolar(
-                r=values,
-                theta=categories + [categories[0]],
-                name=row["Method"],
-                fill="toself",
+    fig, ax = make_figure_canvas(figsize=(11.6, 7.2), polar=True)
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(categories, fontsize=13)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_yticklabels(["0.2", "0.4", "0.6", "0.8", "1.0"], fontsize=10)
+    ax.grid(alpha=0.35)
+
+    handles = []
+    for _, row in scores_df.iterrows():
+        method_name = row["Method"]
+        values = np.array([row["EnergyScore"], row["StructureScore"], row["OverallScore"]])
+        values = np.concatenate([values, [values[0]]])
+        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
+        marker = METHOD_MARKER_MAP.get(method_name, "o")
+        ax.plot(
+            angles,
+            values,
+            color=color,
+            linewidth=2.2,
+            marker=marker,
+            markersize=5.5,
+        )
+        ax.fill(angles, values, color=with_alpha(color, 0.08))
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                marker=marker,
+                linewidth=2.2,
+                label=METHOD_PLOT_LABELS.get(method_name, method_name),
             )
         )
 
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(visible=True, range=[0, 1.05], showticklabels=False),
-            angularaxis=dict(tickfont=dict(family=DISPLAY_FONT_FAMILY, size=22)),
-        ),
-        title=dict(text="图6-1 不同方法综合性能雷达图（双维版）"),
-    )
+    fig.subplots_adjust(left=0.06, right=0.75, bottom=0.07, top=0.98)
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.03, 1.02))
     return fig
 
 
-def write_figure(fig: go.Figure, output_stem: Path, formats: list[str]) -> None:
-    for image_format in formats:
-        output_path = output_stem.with_suffix(f".{image_format}")
-        fig.write_image(
-            output_path,
-            format=image_format,
-            width=EXPORT_WIDTH,
-            height=EXPORT_HEIGHT,
-            scale=EXPORT_SCALE,
+def export_reaction_figures(
+    df_energy: pd.DataFrame,
+    output_dir: Path,
+    formats: list[str],
+    benchmark_method: str,
+) -> list[dict[str, str]]:
+    manifest_rows: list[dict[str, str]] = []
+
+    for spec in REACTION_SPECS:
+        reaction_dir = output_dir / spec["stem"]
+        reaction_dir.mkdir(parents=True, exist_ok=True)
+        reaction_energy = get_reaction_subset(df_energy, spec["key"])
+
+        figure_builders = [
+            ("correlation_matrix", make_correlation_matrix_figure(reaction_energy, spec)),
+            ("error_heatmap", make_error_heatmap_figure(reaction_energy, spec, benchmark_method)),
+            ("absolute_error_distribution", make_absolute_error_distribution_figure(reaction_energy, spec, benchmark_method)),
+            ("barrier_trend", make_barrier_trend_figure(reaction_energy, spec, benchmark_method)),
+        ]
+
+        for suffix, figure in figure_builders:
+            stem = reaction_dir / f"{spec['stem']}_{suffix}"
+            export_paths = finalize_figure(figure, stem, formats)
+            manifest_rows.append(
+                {
+                    "scope": "reaction",
+                    "reaction_key": spec["key"],
+                    "reaction_display": spec["display"],
+                    "figure_type": suffix,
+                    "output_stem": str(stem),
+                    "outputs": "; ".join(str(path) for path in export_paths),
+                }
+            )
+    return manifest_rows
+
+
+def export_summary_figures(
+    df_energy: pd.DataFrame,
+    df_rmsd: pd.DataFrame | None,
+    output_dir: Path,
+    formats: list[str],
+    benchmark_method: str,
+) -> list[dict[str, str]]:
+    summary_dir = output_dir / "summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    manifest_rows: list[dict[str, str]] = []
+
+    summary_figures = [
+        ("summary_cross_reaction_mae_heatmap", make_cross_reaction_mae_heatmap(df_energy, benchmark_method)),
+        ("summary_overall_radar", make_overall_radar_figure(df_energy, df_rmsd, benchmark_method)),
+    ]
+    if df_rmsd is not None:
+        summary_figures.append(
+            (
+                "summary_structure_energy_facets",
+                make_cross_reaction_structure_energy_figure(df_energy, df_rmsd, benchmark_method),
+            )
         )
 
-
-def configure_local_tempdir(base_dir: Path) -> Path:
-    temp_dir = base_dir / ".kaleido_tmp"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir_str = str(temp_dir.resolve())
-
-    # 中文注释：当前桌面沙箱对系统 Temp 目录不可写，必须显式把 Kaleido 的临时目录切回工作区。
-    os.environ["TMP"] = temp_dir_str
-    os.environ["TEMP"] = temp_dir_str
-    os.environ["TMPDIR"] = temp_dir_str
-    tempfile.tempdir = temp_dir_str
-    return temp_dir
+    for suffix, figure in summary_figures:
+        stem = summary_dir / suffix
+        export_paths = finalize_figure(figure, stem, formats)
+        manifest_rows.append(
+            {
+                "scope": "summary",
+                "reaction_key": "ALL",
+                "reaction_display": "全反应汇总",
+                "figure_type": suffix,
+                "output_stem": str(stem),
+                "outputs": "; ".join(str(path) for path in export_paths),
+            }
+        )
+    return manifest_rows
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="为毕业论文批量导出化学可视化静态图。")
-    parser.add_argument("--energy-dir", type=Path, required=True, help="能垒数据目录，支持 xlsx/csv。")
-    parser.add_argument("--rmsd-dir", type=Path, required=True, help="RMSD 数据目录，支持 xlsx/csv。")
-    parser.add_argument("--output-dir", type=Path, required=True, help="图片输出目录。")
+    parser = argparse.ArgumentParser(description="批量导出毕业论文所需的静态化学可视化图片。")
+    parser.add_argument(
+        "--energy-dir",
+        type=Path,
+        default=DEFAULT_ENERGY_DIR,
+        help=f"能垒数据目录，默认值: {DEFAULT_ENERGY_DIR}",
+    )
+    parser.add_argument(
+        "--rmsd-dir",
+        type=Path,
+        default=DEFAULT_RMSD_DIR,
+        help=f"RMSD 数据目录，默认值: {DEFAULT_RMSD_DIR}",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"图片输出目录，默认值: {DEFAULT_OUTPUT_DIR}",
+    )
     parser.add_argument(
         "--formats",
         nargs="+",
         default=["png"],
-        choices=["png", "svg"],
-        help="导出格式，默认仅导出 png。",
+        choices=["png", "pdf"],
+        help="导出格式，默认仅导出高清 png；如确实需要矢量版可额外加入 pdf。",
     )
     return parser.parse_args()
 
 
 def main() -> None:
+    apply_publication_style()
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    configure_local_tempdir(args.output_dir)
 
     df_energy = load_directory_dataset(args.energy_dir)
-    df_rmsd = load_directory_dataset(args.rmsd_dir)
+    df_rmsd = load_directory_dataset(args.rmsd_dir) if args.rmsd_dir.exists() else None
 
-    benchmark_method = get_default_benchmark_method(get_method_columns(df_energy))
+    methods = get_method_columns(df_energy)
+    benchmark_method = get_default_benchmark_method(methods)
 
-    figures = [
-        ("Figure4-1_DA_energy_trend", build_figure_4_1(df_energy, benchmark_method)),
-        ("Figure4-2_DA_absolute_error_distribution", build_figure_4_2(df_energy, benchmark_method)),
-        ("Figure4-3_DA_correlation_matrix", build_figure_4_3(df_energy)),
-        ("Figure5-1_DA_rmsd_heatmap", build_figure_5_1(df_rmsd)),
-        ("Figure5-4_structure_energy_relationship", build_figure_5_4(df_energy, df_rmsd, benchmark_method)),
-        ("Figure6-1_overall_radar", build_figure_6_1(df_energy, df_rmsd, benchmark_method)),
-    ]
+    manifest_rows = []
+    manifest_rows.extend(export_reaction_figures(df_energy, args.output_dir, args.formats, benchmark_method))
+    manifest_rows.extend(export_summary_figures(df_energy, df_rmsd, args.output_dir, args.formats, benchmark_method))
 
-    for file_stem, fig in figures:
-        write_figure(fig, args.output_dir / file_stem, args.formats)
+    manifest_df = pd.DataFrame(manifest_rows)
+    manifest_path = args.output_dir / "figure_manifest.csv"
+    manifest_df.to_csv(manifest_path, index=False, encoding="utf-8-sig")
 
-    print(f"已导出 {len(figures)} 张论文图到: {args.output_dir}")
-    for file_stem, _ in figures:
-        for image_format in args.formats:
-            print(args.output_dir / f"{file_stem}.{image_format}")
+    print(f"识别到的方法顺序: {methods}")
+    print(f"默认基准方法: {benchmark_method}")
+    print(f"已导出 {len(manifest_rows)} 组图片到: {args.output_dir}")
+    print(f"导出清单: {manifest_path}")
+    for row in manifest_rows:
+        print(row["outputs"])
 
 
 if __name__ == "__main__":
