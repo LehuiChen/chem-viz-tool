@@ -133,6 +133,7 @@ ERROR_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_error", ["#0F4D92",
 MAE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_mae", ["#FFF8F4", "#F3C3BC", "#B64342"])
 COVERAGE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_coverage", ["#FFFDFC", "#CBE7C8", "#0F4D92"])
 RESTRICTED_APPLICABILITY_METHODS = {"AIQM2", "ONIOM(AIQM2:GFN2-xTB)"}
+RESTRICTED_SUBSTITUENT_TOKEN_PATTERN = r"(?:^|[-_])(?:Cl|CF3|SH)(?:$|[-_])"
 RADAR_METRIC_SPECS = [
     ("MAE", "MAE", "kcal/mol", False),
     ("RMSE", "RMSE", "kcal/mol", False),
@@ -418,6 +419,18 @@ def get_display_systems(df: pd.DataFrame) -> pd.Series:
     if "Original_System" in df.columns:
         return df["Original_System"].astype(str)
     return df["System"].astype(str)
+
+
+def filter_restricted_substituent_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    system_col = "Original_System" if "Original_System" in df.columns else "System"
+    if system_col not in df.columns:
+        return df.copy(), 0
+
+    # 中文注释：仅按独立 token 识别 Cl/CF3/SH，避免把其他字符串中的偶然子串误判为受限取代基。
+    system_names = df[system_col].astype(str)
+    restricted_mask = system_names.str.contains(RESTRICTED_SUBSTITUENT_TOKEN_PATTERN, case=False, regex=True, na=False)
+    filtered = df.loc[~restricted_mask].copy()
+    return filtered, int(restricted_mask.sum())
 
 
 def format_value(value: float, digits: int = 2, signed: bool = False) -> str:
@@ -982,12 +995,13 @@ def make_reaction_structure_efficiency_figure(
 
 
 def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
-    methods = get_method_columns(df_energy)
+    filtered_energy, removed_count = filter_restricted_substituent_rows(df_energy)
+    methods = get_method_columns(filtered_energy)
     matrix = np.full((len(REACTION_SPECS), len(methods)), np.nan, dtype=float)
     annotation = np.full((len(REACTION_SPECS), len(methods)), "-", dtype=object)
 
     for row_idx, spec in enumerate(REACTION_SPECS):
-        subset = get_reaction_subset(df_energy, spec["key"])
+        subset = filtered_energy[filtered_energy["Reaction"].astype(str).str.casefold() == spec["key"].casefold()].copy()
         total = len(subset)
         for col_idx, method_name in enumerate(methods):
             success = int(subset[method_name].notna().sum()) if total > 0 else 0
@@ -1022,8 +1036,10 @@ def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
             ax.text(col_idx, row_idx, annotation[row_idx, col_idx], ha="center", va="center", fontsize=8.8, color=text_color)
 
     colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
-    colorbar.set_label("样本覆盖率 (%)")
-    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.26, top=0.98)
+    colorbar.set_label("样本覆盖率 (%)（剔除 Cl/CF3/SH 后）")
+    note = f"注：本图已按系统名 token 剔除 Cl/CF3/SH 取代样本（共剔除 {removed_count} 个样本）。"
+    fig.text(0.23, 0.02, note, fontsize=9.2, color="#4A4A4A")
+    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.30, top=0.98)
     return fig
 
 
@@ -1142,7 +1158,7 @@ def make_summary_overall_metrics_raw(df_energy: pd.DataFrame, benchmark_method: 
     x_labels = []
     for _, label, unit, _ in RADAR_METRIC_SPECS:
         x_labels.append(f"{label}\n({unit})" if unit else label)
-    ax.set_xlabel("总体性能指标（单元格数字为原始值）")
+    ax.set_xlabel("总体性能指标：单元格文字=原始值，底色=阈值锚定评分")
     ax.set_ylabel("计算方法")
     ax.set_xticks(np.arange(len(RADAR_METRIC_SPECS)))
     ax.set_xticklabels(x_labels)
@@ -1163,7 +1179,8 @@ def make_summary_overall_metrics_raw(df_energy: pd.DataFrame, benchmark_method: 
     # 中文注释：底色表示阈值锚定评分，单元格文本保留原始量纲，兼顾“可解释”和“可对比”。
     colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
     colorbar.set_label("阈值锚定评分 (0-100)")
-    fig.subplots_adjust(left=0.24, right=0.92, bottom=0.18, top=0.98)
+    fig.text(0.24, 0.03, "说明：100 = 达到 Target；0 = 达到/差于 Bad。", fontsize=9.2, color="#4A4A4A")
+    fig.subplots_adjust(left=0.24, right=0.92, bottom=0.20, top=0.98)
     return fig
 
 
@@ -1194,7 +1211,7 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
     ax.tick_params(axis="x", pad=20)
     ax.set_ylim(0.0, 100.0)
     ax.set_yticks([20, 40, 60, 80, 100])
-    ax.set_yticklabels(["20", "40", "60", "80", "100"], fontsize=10)
+    ax.set_yticklabels(["20分", "40分", "60分", "80分", "100分"], fontsize=10)
     ax.set_rlabel_position(12)
     ax.grid(color=GRID_COLOR, linewidth=0.75, alpha=0.62)
 
@@ -1227,13 +1244,34 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
 
     legend_ax.legend(
         handles=handles,
-        loc="center left",
-        bbox_to_anchor=(0.0, 0.5),
+        loc="upper left",
+        bbox_to_anchor=(0.0, 0.98),
         frameon=False,
         handlelength=1.9,
         handletextpad=0.7,
         labelspacing=0.66,
         borderaxespad=0.0,
+    )
+    # 中文注释：雷达图仅用于展示综合评分形状，原始数值需结合 summary_overall_metrics_raw 阅读。
+    guidance_lines = [
+        "雷达半径 = 阈值锚定评分 (0-100)",
+        "并非 MAE/RMSE 等原始单位",
+        "",
+        "Target / Bad:",
+        "MAE: 1.5 / 6.0 kcal/mol",
+        "RMSE: 2.0 / 8.0 kcal/mol",
+        "MaxError: 6.0 / 20.0 kcal/mol",
+        "R²: 0.90 / 0.60",
+        "成功率: 90% / 60%",
+    ]
+    legend_ax.text(
+        0.0,
+        0.03,
+        "\n".join(guidance_lines),
+        transform=legend_ax.transAxes,
+        fontsize=9.0,
+        color="#3C3C3C",
+        va="bottom",
     )
     fig.subplots_adjust(left=0.03, right=0.98, bottom=0.06, top=0.98)
     return fig
