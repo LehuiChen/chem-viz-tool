@@ -342,14 +342,23 @@ def get_default_benchmark_method(methods: list[str]) -> str:
     return methods[0]
 
 
+def get_method_success_stats(df_energy: pd.DataFrame, method_name: str) -> tuple[int, int]:
+    if method_name not in df_energy.columns:
+        return 0, 0
+
+    if method_name in RESTRICTED_APPLICABILITY_METHODS:
+        eligible_mask = ~get_restricted_substituent_mask(df_energy)
+        denominator = int(eligible_mask.sum())
+        numerator = int(df_energy.loc[eligible_mask, method_name].notna().sum())
+        if denominator > 0:
+            return numerator, denominator
+
+    return int(df_energy[method_name].notna().sum()), int(len(df_energy))
+
+
 def get_method_success_denominator(df_energy: pd.DataFrame, method_name: str) -> int:
-    if method_name in RESTRICTED_APPLICABILITY_METHODS and RESTRICTED_APPLICABILITY_METHODS.issubset(df_energy.columns):
-        # 中文注释：AIQM2 与 ONIOM 受元素适用范围约束，分母应按两者“可用样本并集”统计，
-        # 不能直接使用全库总样本数，否则会低估成功率。
-        mask = df_energy["AIQM2"].notna() | df_energy["ONIOM(AIQM2:GFN2-xTB)"].notna()
-        denominator = int(mask.sum())
-        return denominator if denominator > 0 else int(len(df_energy))
-    return int(len(df_energy))
+    _, denominator = get_method_success_stats(df_energy, method_name)
+    return denominator
 
 
 def build_overall_metrics_table(df_energy: pd.DataFrame, benchmark_method: str) -> pd.DataFrame:
@@ -361,8 +370,7 @@ def build_overall_metrics_table(df_energy: pd.DataFrame, benchmark_method: str) 
             continue
         diff = pair_df[method_name] - pair_df[benchmark_method]
         corr_value = pair_df[benchmark_method].corr(pair_df[method_name]) if len(pair_df) >= 2 else np.nan
-        denominator = get_method_success_denominator(df_energy, method_name)
-        numerator = int(df_energy[method_name].notna().sum())
+        numerator, denominator = get_method_success_stats(df_energy, method_name)
         success_rate = float(numerator) / float(denominator) if denominator > 0 else 0.0
         metric_rows.append(
             {
@@ -421,14 +429,21 @@ def get_display_systems(df: pd.DataFrame) -> pd.Series:
     return df["System"].astype(str)
 
 
-def filter_restricted_substituent_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+def get_restricted_substituent_mask(df: pd.DataFrame) -> pd.Series:
     system_col = "Original_System" if "Original_System" in df.columns else "System"
     if system_col not in df.columns:
-        return df.copy(), 0
+        return pd.Series(False, index=df.index)
+    # 中文注释：仅匹配独立 token（如 TS-C1-Cl），避免把普通字符串片段误判为受限取代基。
+    return df[system_col].astype(str).str.contains(
+        RESTRICTED_SUBSTITUENT_TOKEN_PATTERN,
+        case=False,
+        regex=True,
+        na=False,
+    )
 
-    # 中文注释：仅按独立 token 识别 Cl/CF3/SH，避免把其他字符串中的偶然子串误判为受限取代基。
-    system_names = df[system_col].astype(str)
-    restricted_mask = system_names.str.contains(RESTRICTED_SUBSTITUENT_TOKEN_PATTERN, case=False, regex=True, na=False)
+
+def filter_restricted_substituent_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    restricted_mask = get_restricted_substituent_mask(df)
     filtered = df.loc[~restricted_mask].copy()
     return filtered, int(restricted_mask.sum())
 
@@ -995,20 +1010,28 @@ def make_reaction_structure_efficiency_figure(
 
 
 def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
-    filtered_energy, removed_count = filter_restricted_substituent_rows(df_energy)
-    methods = get_method_columns(filtered_energy)
+    methods = get_method_columns(df_energy)
+    restricted_mask_all = get_restricted_substituent_mask(df_energy)
     matrix = np.full((len(REACTION_SPECS), len(methods)), np.nan, dtype=float)
     annotation = np.full((len(REACTION_SPECS), len(methods)), "-", dtype=object)
 
     for row_idx, spec in enumerate(REACTION_SPECS):
-        subset = filtered_energy[filtered_energy["Reaction"].astype(str).str.casefold() == spec["key"].casefold()].copy()
+        subset = get_reaction_subset(df_energy, spec["key"])
         total = len(subset)
+        subset_restricted_mask = restricted_mask_all.loc[subset.index]
         for col_idx, method_name in enumerate(methods):
-            success = int(subset[method_name].notna().sum()) if total > 0 else 0
-            if total > 0:
-                coverage = success / total * 100.0
+            if method_name in RESTRICTED_APPLICABILITY_METHODS:
+                eligible_subset = subset.loc[~subset_restricted_mask]
+                denominator = int(len(eligible_subset))
+                success = int(eligible_subset[method_name].notna().sum()) if denominator > 0 else 0
+            else:
+                denominator = total
+                success = int(subset[method_name].notna().sum()) if total > 0 else 0
+
+            if denominator > 0:
+                coverage = success / denominator * 100.0
                 matrix[row_idx, col_idx] = coverage
-                annotation[row_idx, col_idx] = f"{success}/{total}\n({coverage:.0f}%)"
+                annotation[row_idx, col_idx] = f"{success}/{denominator}\n({coverage:.0f}%)"
 
     fig, ax = make_figure_canvas(figsize=(11.8, 5.8))
     cmap = COVERAGE_CMAP.copy()
@@ -1036,10 +1059,8 @@ def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
             ax.text(col_idx, row_idx, annotation[row_idx, col_idx], ha="center", va="center", fontsize=8.8, color=text_color)
 
     colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
-    colorbar.set_label("样本覆盖率 (%)（剔除 Cl/CF3/SH 后）")
-    note = f"注：本图已按系统名 token 剔除 Cl/CF3/SH 取代样本（共剔除 {removed_count} 个样本）。"
-    fig.text(0.23, 0.02, note, fontsize=9.2, color="#4A4A4A")
-    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.30, top=0.98)
+    colorbar.set_label("样本覆盖率 (%)")
+    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.26, top=0.98)
     return fig
 
 
@@ -1049,8 +1070,9 @@ def make_summary_method_success_rate(df_energy: pd.DataFrame) -> plt.Figure:
     if total <= 0:
         raise ValueError("energy 数据为空，无法计算成功率。")
 
-    success_counts = np.array([int(df_energy[method_name].notna().sum()) for method_name in methods], dtype=int)
-    denominators = np.array([get_method_success_denominator(df_energy, method_name) for method_name in methods], dtype=int)
+    success_stats = [get_method_success_stats(df_energy, method_name) for method_name in methods]
+    success_counts = np.array([stat[0] for stat in success_stats], dtype=int)
+    denominators = np.array([stat[1] for stat in success_stats], dtype=int)
     rates = np.divide(
         success_counts * 100.0,
         denominators,
