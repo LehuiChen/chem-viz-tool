@@ -121,7 +121,7 @@ DEFAULT_RMSD_DIR = DEFAULT_INPUT_ROOT / "rmsd_data"
 DEFAULT_OUTPUT_DIR = DEFAULT_INPUT_ROOT / "论文绘图输出"
 DEFAULT_RMSD_THRESHOLD = 0.10
 DEFAULT_ENERGY_THRESHOLD = 1.00
-PNG_DPI = 600
+PNG_DPI = 1200
 PDF_DPI = 300
 RNG = np.random.default_rng(20260420)
 PAPER_BG = "#FBFAF7"
@@ -133,6 +133,27 @@ ERROR_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_error", ["#0F4D92",
 MAE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_mae", ["#FFF8F4", "#F3C3BC", "#B64342"])
 COVERAGE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_coverage", ["#FFFDFC", "#CBE7C8", "#0F4D92"])
 RESTRICTED_APPLICABILITY_METHODS = {"AIQM2", "ONIOM(AIQM2:GFN2-xTB)"}
+RADAR_METRIC_SPECS = [
+    ("MAE", "MAE", "kcal/mol", False),
+    ("RMSE", "RMSE", "kcal/mol", False),
+    ("MaxError", "MaxError", "kcal/mol", False),
+    ("R2", "R²", "", True),
+    ("SuccessRate", "成功率", "%", True),
+]
+RADAR_TARGETS = {
+    "MAE": 1.5,
+    "RMSE": 2.0,
+    "MaxError": 6.0,
+    "R2": 0.90,
+    "SuccessRate": 0.90,
+}
+RADAR_BADS = {
+    "MAE": 6.0,
+    "RMSE": 8.0,
+    "MaxError": 20.0,
+    "R2": 0.60,
+    "SuccessRate": 0.60,
+}
 
 
 def apply_publication_style() -> None:
@@ -328,6 +349,55 @@ def get_method_success_denominator(df_energy: pd.DataFrame, method_name: str) ->
         denominator = int(mask.sum())
         return denominator if denominator > 0 else int(len(df_energy))
     return int(len(df_energy))
+
+
+def build_overall_metrics_table(df_energy: pd.DataFrame, benchmark_method: str) -> pd.DataFrame:
+    methods = [method_name for method_name in get_method_columns(df_energy) if method_name != benchmark_method]
+    metric_rows = []
+    for method_name in methods:
+        pair_df = df_energy[[benchmark_method, method_name]].dropna(subset=[benchmark_method, method_name]).copy()
+        if pair_df.empty:
+            continue
+        diff = pair_df[method_name] - pair_df[benchmark_method]
+        corr_value = pair_df[benchmark_method].corr(pair_df[method_name]) if len(pair_df) >= 2 else np.nan
+        denominator = get_method_success_denominator(df_energy, method_name)
+        numerator = int(df_energy[method_name].notna().sum())
+        success_rate = float(numerator) / float(denominator) if denominator > 0 else 0.0
+        metric_rows.append(
+            {
+                "Method": method_name,
+                "MAE": float(diff.abs().mean()),
+                "RMSE": float(np.sqrt((diff ** 2).mean())),
+                "MaxError": float(diff.abs().max()),
+                "R2": 0.0 if pd.isna(corr_value) else float(corr_value ** 2),
+                "SuccessRate": success_rate,
+                "SuccessNumerator": numerator,
+                "SuccessDenominator": denominator,
+            }
+        )
+
+    if not metric_rows:
+        raise ValueError("有效配对样本不足，无法生成综合指标。")
+
+    metrics_df = pd.DataFrame(metric_rows)
+    order_map = {method_name: idx for idx, method_name in enumerate(THESIS_METHOD_ORDER)}
+    metrics_df = metrics_df.sort_values(by="Method", key=lambda series: series.map(order_map).fillna(len(order_map))).reset_index(drop=True)
+    return metrics_df
+
+
+def compute_threshold_anchor_score(values: pd.Series, metric_key: str, higher_better: bool) -> pd.Series:
+    target = RADAR_TARGETS[metric_key]
+    bad = RADAR_BADS[metric_key]
+    denominator = (target - bad) if higher_better else (bad - target)
+    if denominator == 0:
+        return pd.Series(np.full(len(values), 100.0), index=values.index, dtype=float)
+
+    if higher_better:
+        scores = (values - bad) / denominator
+    else:
+        scores = (bad - values) / denominator
+    # 中文注释：阈值锚定将不同量纲映射到同一评分空间；clip 可避免极端值破坏图形尺度。
+    return scores.clip(lower=0.0, upper=1.0) * 100.0
 
 
 def get_reaction_spec(reaction_key: str) -> dict[str, str]:
@@ -1054,62 +1124,63 @@ def make_summary_method_reaction_mae_heatmap(df_energy: pd.DataFrame, benchmark_
     return fig
 
 
+def make_summary_overall_metrics_raw(df_energy: pd.DataFrame, benchmark_method: str) -> plt.Figure:
+    metrics_df = build_overall_metrics_table(df_energy, benchmark_method)
+    methods = metrics_df["Method"].tolist()
+    color_matrix = np.column_stack(
+        [
+            compute_threshold_anchor_score(metrics_df[key], key, higher_better).to_numpy(dtype=float)
+            for key, _, _, higher_better in RADAR_METRIC_SPECS
+        ]
+    )
+
+    fig, ax = make_figure_canvas(figsize=(13.6, 6.3))
+    quality_cmap = mcolors.LinearSegmentedColormap.from_list("quality_score_map", ["#B64342", "#F7F4EE", "#0F4D92"])
+    image = ax.imshow(color_matrix, cmap=quality_cmap, vmin=0.0, vmax=100.0, aspect="auto")
+    ax.grid(False)
+
+    x_labels = []
+    for _, label, unit, _ in RADAR_METRIC_SPECS:
+        x_labels.append(f"{label}\n({unit})" if unit else label)
+    ax.set_xlabel("总体性能指标（单元格数字为原始值）")
+    ax.set_ylabel("计算方法")
+    ax.set_xticks(np.arange(len(RADAR_METRIC_SPECS)))
+    ax.set_xticklabels(x_labels)
+    ax.set_yticks(np.arange(len(methods)))
+    ax.set_yticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+
+    for row_idx, row in metrics_df.iterrows():
+        for col_idx, (key, _, _, _) in enumerate(RADAR_METRIC_SPECS):
+            if key == "SuccessRate":
+                text = f"{row[key] * 100:.1f}%\n({int(row['SuccessNumerator'])}/{int(row['SuccessDenominator'])})"
+            elif key == "R2":
+                text = f"{row[key]:.3f}"
+            else:
+                text = f"{row[key]:.2f}"
+            text_color = "white" if color_matrix[row_idx, col_idx] >= 64.0 else "#1F1F1F"
+            ax.text(col_idx, row_idx, text, ha="center", va="center", fontsize=9.4, color=text_color)
+
+    # 中文注释：底色表示阈值锚定评分，单元格文本保留原始量纲，兼顾“可解释”和“可对比”。
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
+    colorbar.set_label("阈值锚定评分 (0-100)")
+    fig.subplots_adjust(left=0.24, right=0.92, bottom=0.18, top=0.98)
+    return fig
+
+
 def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | None, benchmark_method: str) -> plt.Figure:
-    plot_methods = [method_name for method_name in get_method_columns(df_energy) if method_name != benchmark_method]
-    metric_rows = []
-    for method_name in plot_methods:
-        pair_df = df_energy[[benchmark_method, method_name]].dropna(subset=[benchmark_method, method_name]).copy()
-        if pair_df.empty:
-            continue
-        diff = pair_df[method_name] - pair_df[benchmark_method]
-        corr_value = pair_df[benchmark_method].corr(pair_df[method_name]) if len(pair_df) >= 2 else np.nan
-        denominator = get_method_success_denominator(df_energy, method_name)
-        success_rate = float(df_energy[method_name].notna().sum()) / float(denominator) if denominator > 0 else 0.0
-        metric_rows.append(
-            {
-                "Method": method_name,
-                "MAE": diff.abs().mean(),
-                "RMSE": np.sqrt((diff ** 2).mean()),
-                "MaxError": diff.abs().max(),
-                "R2": 0.0 if pd.isna(corr_value) else corr_value ** 2,
-                "SuccessRate": success_rate,
-            }
-        )
-
-    if not metric_rows:
-        raise ValueError("有效配对样本不足，无法生成综合性能雷达图。")
-
-    metrics_df = pd.DataFrame(metric_rows)
+    metrics_df = build_overall_metrics_table(df_energy, benchmark_method)
     scores_df = metrics_df[["Method"]].copy()
+    for key, _, _, higher_better in RADAR_METRIC_SPECS:
+        scores_df[f"{key}_score"] = compute_threshold_anchor_score(metrics_df[key], key, higher_better)
 
-    def normalize_lower_better(series: pd.Series) -> pd.Series:
-        min_value = float(series.min())
-        max_value = float(series.max())
-        return pd.Series(1.0, index=series.index) if max_value == min_value else (max_value - series) / (max_value - min_value)
-
-    def normalize_higher_better(series: pd.Series) -> pd.Series:
-        min_value = float(series.min())
-        max_value = float(series.max())
-        return pd.Series(1.0, index=series.index) if max_value == min_value else (series - min_value) / (max_value - min_value)
-
-    # 中文注释：雷达图展示的是“归一化后相对得分”，原始绝对数值仍由其他图（热图/箱线图/成功率柱图）承载。
-    scores_df["MAE_score"] = normalize_lower_better(metrics_df["MAE"])
-    scores_df["RMSE_score"] = normalize_lower_better(metrics_df["RMSE"])
-    scores_df["MaxError_score"] = normalize_lower_better(metrics_df["MaxError"])
-    scores_df["R2_score"] = normalize_higher_better(metrics_df["R2"])
-    scores_df["Success_score"] = normalize_higher_better(metrics_df["SuccessRate"])
-
-    order_map = {method_name: idx for idx, method_name in enumerate(THESIS_METHOD_ORDER)}
-    scores_df = scores_df.sort_values(by="Method", key=lambda series: series.map(order_map).fillna(len(order_map)))
-
-    categories = ["MAE", "RMSE", "MaxError", "R²", "成功率"]
-    value_columns = ["MAE_score", "RMSE_score", "MaxError_score", "R2_score", "Success_score"]
+    categories = [label for _, label, _, _ in RADAR_METRIC_SPECS]
+    value_columns = [f"{key}_score" for key, _, _, _ in RADAR_METRIC_SPECS]
     angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False)
     angles = np.concatenate([angles, [angles[0]]])
 
-    fig = plt.figure(figsize=(14.2, 7.8))
+    fig = plt.figure(figsize=(15.0, 8.3))
     fig.patch.set_facecolor(PAPER_BG)
-    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.0, 1.4], wspace=0.02)
+    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.2, 1.45], wspace=0.02)
     ax = fig.add_subplot(grid[0, 0], polar=True)
     legend_ax = fig.add_subplot(grid[0, 1])
     legend_ax.set_facecolor(PANEL_BG)
@@ -1119,17 +1190,18 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(categories, fontsize=13)
-    ax.tick_params(axis="x", pad=16)
-    ax.set_ylim(0.0, 1.0)
-    ax.set_yticks([0.25, 0.50, 0.75, 1.00])
-    ax.set_yticklabels(["0.25", "0.50", "0.75", "1.00"], fontsize=10)
-    ax.grid(color=GRID_COLOR, linewidth=0.75, alpha=0.60)
+    ax.set_xticklabels(categories, fontsize=14)
+    ax.tick_params(axis="x", pad=20)
+    ax.set_ylim(0.0, 100.0)
+    ax.set_yticks([20, 40, 60, 80, 100])
+    ax.set_yticklabels(["20", "40", "60", "80", "100"], fontsize=10)
+    ax.set_rlabel_position(12)
+    ax.grid(color=GRID_COLOR, linewidth=0.75, alpha=0.62)
 
     handles = []
     for _, row in scores_df.iterrows():
         method_name = row["Method"]
-        values = np.array([float(row[column_name]) for column_name in value_columns])
+        values = np.array([float(row[column_name]) for column_name in value_columns], dtype=float)
         values = np.concatenate([values, [values[0]]])
         color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
         marker = METHOD_MARKER_MAP.get(method_name, "o")
@@ -1137,18 +1209,18 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
             angles,
             values,
             color=color,
-            linewidth=2.0,
+            linewidth=1.9,
             marker=marker,
-            markersize=4.8,
+            markersize=4.6,
         )
-        ax.fill(angles, values, color=with_alpha(color, 0.08))
+        ax.fill(angles, values, color=with_alpha(color, 0.06))
         handles.append(
             Line2D(
                 [0],
                 [0],
                 color=color,
                 marker=marker,
-                linewidth=2.0,
+                linewidth=1.9,
                 label=METHOD_PLOT_LABELS.get(method_name, method_name),
             )
         )
@@ -1163,7 +1235,7 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
         labelspacing=0.66,
         borderaxespad=0.0,
     )
-    fig.subplots_adjust(left=0.03, right=0.98, bottom=0.05, top=0.98)
+    fig.subplots_adjust(left=0.03, right=0.98, bottom=0.06, top=0.98)
     return fig
 
 
@@ -1315,6 +1387,7 @@ def export_summary_figures(
         ("summary_dataset_coverage_matrix", make_summary_dataset_coverage_matrix(df_energy)),
         ("summary_method_success_rate", make_summary_method_success_rate(df_energy)),
         ("summary_method_reaction_mae_heatmap", make_summary_method_reaction_mae_heatmap(df_energy, benchmark_method)),
+        ("summary_overall_metrics_raw", make_summary_overall_metrics_raw(df_energy, benchmark_method)),
         ("summary_overall_radar", make_overall_radar_figure(df_energy, df_rmsd, benchmark_method)),
     ]
 
