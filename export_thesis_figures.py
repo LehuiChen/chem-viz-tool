@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import math
@@ -13,11 +13,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
-from matplotlib.patches import Rectangle
+from matplotlib.patches import FancyBboxPatch, Rectangle
 from matplotlib.ticker import MaxNLocator
 
 
-DISPLAY_FONT_FAMILY = ["Microsoft YaHei", "SimHei", "Arial", "DejaVu Sans"]
+# 中文标签必须稳定渲染，优先放可用中文字体，再回退到 Helvetica/Arial 风格。
+DISPLAY_FONT_FAMILY = ["Microsoft YaHei", "SimHei", "Helvetica", "Arial", "DejaVu Sans"]
 PREFERRED_BENCHMARK_METHOD = "ωB97X-D/6-31G(d)"
 MISSING_VALUE_MARKERS = ["####", "nan", "NaN", "N/A", "NA", ""]
 METHOD_NAME_ALIASES = {
@@ -62,14 +63,14 @@ METHOD_PLOT_LABELS = {
     "ONIOM(AIQM2:GFN2-xTB)": "ONIOM\n(AIQM2:GFN2-xTB)",
 }
 METHOD_COLOR_MAP = {
-    "ωB97X-D/6-31G(d)": "#2B5B84",
-    "M06-2X/6-31G(d)": "#C94C4C",
-    "B3LYP-D3/6-31G(d)": "#7B6CA8",
-    "AIQM2": "#4C9A7D",
-    "GFN2-xTB": "#D98E32",
-    "MACE-OMOL-0": "#6C7A89",
-    "orb_v3_conservative_omol": "#C96A8A",
-    "ONIOM(AIQM2:GFN2-xTB)": "#5F8F8B",
+    "ωB97X-D/6-31G(d)": "#0F4D92",
+    "M06-2X/6-31G(d)": "#3775BA",
+    "B3LYP-D3/6-31G(d)": "#9A4D8E",
+    "AIQM2": "#8BCF8B",
+    "GFN2-xTB": "#B64342",
+    "MACE-OMOL-0": "#42949E",
+    "orb_v3_conservative_omol": "#E9A6A1",
+    "ONIOM(AIQM2:GFN2-xTB)": "#767676",
 }
 METHOD_MARKER_MAP = {
     "ωB97X-D/6-31G(d)": "o",
@@ -113,7 +114,8 @@ REACTION_SPECS = [
         "stem": "05_butterfly_mechanism",
     },
 ]
-DEFAULT_INPUT_ROOT = Path(r"C:\Users\30453\Desktop\中转文件夹")
+# Windows 路径包含 \U 时会触发 Python 转义歧义，这里统一改为正斜杠写法。
+DEFAULT_INPUT_ROOT = Path("C:/Users/30453/Desktop/中转文件夹")
 DEFAULT_ENERGY_DIR = DEFAULT_INPUT_ROOT / "energy_data"
 DEFAULT_RMSD_DIR = DEFAULT_INPUT_ROOT / "rmsd_data"
 DEFAULT_OUTPUT_DIR = DEFAULT_INPUT_ROOT / "论文绘图输出"
@@ -122,6 +124,14 @@ DEFAULT_ENERGY_THRESHOLD = 1.00
 PNG_DPI = 600
 PDF_DPI = 300
 RNG = np.random.default_rng(20260420)
+PAPER_BG = "#FBFAF7"
+PANEL_BG = "#FFFFFF"
+GRID_COLOR = "#D8D5D0"
+TEXT_COLOR = "#222222"
+NEUTRAL_FILL = "#F4F2EC"
+ERROR_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_error", ["#0F4D92", "#F7F4EE", "#B64342"])
+MAE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_mae", ["#FFF8F4", "#F3C3BC", "#B64342"])
+COVERAGE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_coverage", ["#FFFDFC", "#CBE7C8", "#0F4D92"])
 
 
 def apply_publication_style() -> None:
@@ -134,21 +144,28 @@ def apply_publication_style() -> None:
             "axes.unicode_minus": False,
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
-            "figure.dpi": 160,
+            "figure.dpi": 200,
             "savefig.dpi": PNG_DPI,
-            "savefig.facecolor": "white",
+            "savefig.facecolor": PAPER_BG,
             "savefig.bbox": "tight",
             "axes.linewidth": 1.1,
             "axes.spines.top": False,
             "axes.spines.right": False,
+            "axes.facecolor": PANEL_BG,
+            "axes.edgecolor": "#2F2F2F",
+            "axes.labelcolor": TEXT_COLOR,
             "axes.labelsize": 15,
             "axes.titlesize": 15,
             "xtick.labelsize": 11,
             "ytick.labelsize": 11,
+            "xtick.color": TEXT_COLOR,
+            "ytick.color": TEXT_COLOR,
+            "text.color": TEXT_COLOR,
             "legend.fontsize": 10.5,
             "legend.frameon": False,
-            "grid.linewidth": 0.6,
-            "grid.alpha": 0.28,
+            "grid.color": GRID_COLOR,
+            "grid.linewidth": 0.7,
+            "grid.alpha": 0.35,
         }
     )
 
@@ -333,6 +350,41 @@ def with_alpha(hex_color: str, alpha: float) -> tuple[float, float, float, float
     return red, green, blue, alpha
 
 
+def add_schematic_box(
+    ax: plt.Axes,
+    *,
+    xy: tuple[float, float],
+    width: float,
+    height: float,
+    text: str,
+    facecolor: str,
+    edgecolor: str = "#2F2F2F",
+    fontsize: float = 11.0,
+) -> FancyBboxPatch:
+    box = FancyBboxPatch(
+        xy,
+        width,
+        height,
+        boxstyle="round,pad=0.012,rounding_size=0.016",
+        linewidth=1.2,
+        edgecolor=edgecolor,
+        facecolor=facecolor,
+        mutation_aspect=1.0,
+    )
+    ax.add_patch(box)
+    ax.text(
+        xy[0] + width / 2,
+        xy[1] + height / 2,
+        text,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        linespacing=1.35,
+        color=TEXT_COLOR,
+    )
+    return box
+
+
 def make_figure_canvas(
     *,
     nrows: int = 1,
@@ -353,6 +405,14 @@ def make_figure_canvas(
         sharey=sharey,
         subplot_kw=subplot_kw,
     )
+    fig.patch.set_facecolor(PAPER_BG)
+
+    # 中文注释：统一在画布层设置 panel 背景和网格，可避免不同子图函数重复写样式代码且降低漏配风险。
+    axis_list = axes.flat if isinstance(axes, np.ndarray) else [axes]
+    for axis in axis_list:
+        axis.set_facecolor(PANEL_BG)
+        if not polar:
+            axis.grid(axis="y", color=GRID_COLOR, linewidth=0.7, alpha=0.35)
     return fig, axes
 
 
@@ -489,7 +549,7 @@ def make_absolute_error_distribution_figure(
 ) -> plt.Figure:
     _, abs_error = build_error_tables(df_energy, benchmark_method)
     methods = list(abs_error.columns)
-    fig, ax = make_figure_canvas(figsize=(12.2, 6.3))
+    fig, ax = make_figure_canvas(figsize=(13.4, 6.4))
 
     for idx, method_name in enumerate(methods, start=1):
         values = abs_error[method_name].dropna().to_numpy()
@@ -526,11 +586,16 @@ def make_absolute_error_distribution_figure(
     ax.set_xlabel("计算方法")
     ax.set_ylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)")
     ax.set_xticks(range(1, len(methods) + 1))
-    ax.set_xticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+    ax.set_xticklabels(
+        [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods],
+        rotation=12,
+        ha="right",
+        rotation_mode="anchor",
+    )
     ax.grid(axis="y")
     ax.set_xlim(0.4, len(methods) + 0.6)
     ax.set_ylim(bottom=0.0)
-    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.22, top=0.98)
+    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.26, top=0.98)
     return fig
 
 
@@ -546,11 +611,12 @@ def make_error_heatmap_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
 
     fig_height = max(7.0, 2.0 + 0.18 * len(systems))
     fig, ax = make_figure_canvas(figsize=(10.6, fig_height))
-    cmap = plt.get_cmap("RdBu_r").copy()
-    cmap.set_bad("#F2F2F2")
+    cmap = ERROR_CMAP.copy()
+    cmap.set_bad(NEUTRAL_FILL)
     masked = np.ma.masked_invalid(matrix)
     norm = mcolors.TwoSlopeNorm(vmin=-color_limit, vcenter=0.0, vmax=color_limit)
     image = ax.imshow(masked, cmap=cmap, norm=norm, aspect="auto")
+    ax.grid(False)
 
     ax.set_xlabel("计算方法")
     ax.set_ylabel(f"{reaction_spec['display']}体系")
@@ -586,10 +652,11 @@ def make_correlation_matrix_figure(df_energy: pd.DataFrame, reaction_spec: dict[
     corr_matrix = df_energy[methods].corr(min_periods=2).to_numpy(dtype=float)
 
     fig, ax = make_figure_canvas(figsize=(8.6, 7.6))
-    cmap = plt.get_cmap("RdBu_r").copy()
-    cmap.set_bad("#F2F2F2")
+    cmap = ERROR_CMAP.copy()
+    cmap.set_bad(NEUTRAL_FILL)
     masked = np.ma.masked_invalid(corr_matrix)
     image = ax.imshow(masked, cmap=cmap, vmin=-1.0, vmax=1.0)
+    ax.grid(False)
 
     ax.set_xlabel("计算方法")
     ax.set_ylabel("计算方法")
@@ -762,7 +829,101 @@ def make_cross_reaction_structure_energy_figure(
     return fig
 
 
-def make_cross_reaction_mae_heatmap(df_energy: pd.DataFrame, benchmark_method: str) -> plt.Figure:
+def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
+    methods = get_method_columns(df_energy)
+    matrix = np.full((len(REACTION_SPECS), len(methods)), np.nan, dtype=float)
+    annotation = np.full((len(REACTION_SPECS), len(methods)), "-", dtype=object)
+
+    for row_idx, spec in enumerate(REACTION_SPECS):
+        subset = get_reaction_subset(df_energy, spec["key"])
+        total = len(subset)
+        for col_idx, method_name in enumerate(methods):
+            success = int(subset[method_name].notna().sum()) if total > 0 else 0
+            if total > 0:
+                coverage = success / total * 100.0
+                matrix[row_idx, col_idx] = coverage
+                annotation[row_idx, col_idx] = f"{success}/{total}\n({coverage:.0f}%)"
+
+    fig, ax = make_figure_canvas(figsize=(11.8, 5.8))
+    cmap = COVERAGE_CMAP.copy()
+    cmap.set_bad(NEUTRAL_FILL)
+    masked = np.ma.masked_invalid(matrix)
+    image = ax.imshow(masked, cmap=cmap, vmin=0.0, vmax=100.0, aspect="auto")
+    ax.grid(False)
+
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel("反应类型")
+    ax.set_xticks(np.arange(len(methods)))
+    ax.set_xticklabels(
+        [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods],
+        rotation=20,
+        ha="right",
+        rotation_mode="anchor",
+    )
+    ax.set_yticks(np.arange(len(REACTION_SPECS)))
+    ax.set_yticklabels([spec["display"] for spec in REACTION_SPECS])
+
+    for row_idx in range(matrix.shape[0]):
+        for col_idx in range(matrix.shape[1]):
+            value = matrix[row_idx, col_idx]
+            text_color = "white" if np.isfinite(value) and value >= 60 else TEXT_COLOR
+            ax.text(col_idx, row_idx, annotation[row_idx, col_idx], ha="center", va="center", fontsize=8.8, color=text_color)
+
+    colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
+    colorbar.set_label("样本覆盖率 (%)")
+    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.26, top=0.98)
+    return fig
+
+
+def make_summary_method_success_rate(df_energy: pd.DataFrame) -> plt.Figure:
+    methods = get_method_columns(df_energy)
+    total = len(df_energy)
+    if total == 0:
+        raise ValueError("energy 数据为空，无法计算成功率。")
+
+    success_counts = np.array([int(df_energy[method_name].notna().sum()) for method_name in methods], dtype=int)
+    rates = success_counts / total * 100.0
+    x = np.arange(len(methods))
+
+    fig, ax = make_figure_canvas(figsize=(12.4, 6.3))
+    bars = ax.bar(
+        x,
+        rates,
+        color=[METHOD_COLOR_MAP.get(method_name, "#777777") for method_name in methods],
+        width=0.64,
+        edgecolor="#2F2F2F",
+        linewidth=0.8,
+        zorder=3,
+    )
+
+    # 中文注释：成功率分母固定为全样本总数，确保不同方法之间可直接横向比较。
+    for idx, (bar, success, rate) in enumerate(zip(bars, success_counts, rates)):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 1.1,
+            f"{rate:.1f}%\n({success}/{total})",
+            ha="center",
+            va="bottom",
+            fontsize=9.2,
+            color=TEXT_COLOR,
+        )
+
+    ax.set_xlabel("计算方法")
+    ax.set_ylabel("过渡态搜索成功率 (%)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods],
+        rotation=14,
+        ha="right",
+        rotation_mode="anchor",
+    )
+    y_max = max(float(np.nanmax(rates)) + 12.0, 100.0)
+    ax.set_ylim(0.0, y_max)
+    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.30, top=0.97)
+    return fig
+
+
+def make_summary_method_reaction_mae_heatmap(df_energy: pd.DataFrame, benchmark_method: str) -> plt.Figure:
     plot_methods = [method_name for method_name in get_method_columns(df_energy) if method_name != benchmark_method]
     matrix = []
     y_labels = []
@@ -777,28 +938,32 @@ def make_cross_reaction_mae_heatmap(df_energy: pd.DataFrame, benchmark_method: s
         y_labels.append(spec["display"])
 
     matrix_array = np.asarray(matrix, dtype=float)
-    fig, ax = make_figure_canvas(figsize=(10.8, 5.4))
-    cmap = plt.get_cmap("YlOrRd").copy()
-    cmap.set_bad("#F2F2F2")
+    fig, ax = make_figure_canvas(figsize=(11.2, 5.6))
+    cmap = MAE_CMAP.copy()
+    cmap.set_bad(NEUTRAL_FILL)
     masked = np.ma.masked_invalid(matrix_array)
     image = ax.imshow(masked, cmap=cmap, aspect="auto")
+    ax.grid(False)
 
     ax.set_xlabel("计算方法")
     ax.set_ylabel("反应类型")
     ax.set_xticks(np.arange(len(plot_methods)))
     ax.set_xticklabels(
         [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in plot_methods],
-        rotation=15,
+        rotation=20,
         ha="right",
         rotation_mode="anchor",
     )
     ax.set_yticks(np.arange(len(y_labels)))
     ax.set_yticklabels(y_labels)
-    annotate_heatmap(ax, matrix_array, digits=2, signed=False, white_threshold=np.nanmax(matrix_array) * 0.65, fontsize=9.2)
+
+    valid_values = matrix_array[np.isfinite(matrix_array)]
+    white_threshold = float(np.quantile(valid_values, 0.7)) if valid_values.size else 1.0
+    annotate_heatmap(ax, matrix_array, digits=2, signed=False, white_threshold=white_threshold, fontsize=9.1)
 
     colorbar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03)
     colorbar.set_label("平均绝对能垒误差 MAE (kcal/mol)")
-    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.26, top=0.98)
+    fig.subplots_adjust(left=0.23, right=0.92, bottom=0.26, top=0.98)
     return fig
 
 
@@ -865,15 +1030,23 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
     angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False)
     angles = np.concatenate([angles, [angles[0]]])
 
-    fig, ax = make_figure_canvas(figsize=(11.6, 7.2), polar=True)
+    fig = plt.figure(figsize=(12.8, 7.2))
+    fig.patch.set_facecolor(PAPER_BG)
+    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.4, 1.2], wspace=0.02)
+    ax = fig.add_subplot(grid[0, 0], polar=True)
+    legend_ax = fig.add_subplot(grid[0, 1])
+    legend_ax.set_facecolor(PANEL_BG)
+    legend_ax.axis("off")
+
+    ax.set_facecolor(PANEL_BG)
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(categories, fontsize=13)
     ax.set_ylim(0.0, 1.0)
-    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
-    ax.set_yticklabels(["0.2", "0.4", "0.6", "0.8", "1.0"], fontsize=10)
-    ax.grid(alpha=0.35)
+    ax.set_yticks([0.25, 0.50, 0.75, 1.00])
+    ax.set_yticklabels(["0.25", "0.50", "0.75", "1.00"], fontsize=10)
+    ax.grid(color=GRID_COLOR, linewidth=0.7, alpha=0.55)
 
     handles = []
     for _, row in scores_df.iterrows():
@@ -890,7 +1063,7 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
             marker=marker,
             markersize=5.5,
         )
-        ax.fill(angles, values, color=with_alpha(color, 0.08))
+        ax.fill(angles, values, color=with_alpha(color, 0.10))
         handles.append(
             Line2D(
                 [0],
@@ -902,8 +1075,112 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
             )
         )
 
-    fig.subplots_adjust(left=0.06, right=0.75, bottom=0.07, top=0.98)
-    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.03, 1.02))
+    legend_ax.legend(
+        handles=handles,
+        loc="center left",
+        bbox_to_anchor=(0.0, 0.5),
+        frameon=False,
+        handlelength=2.0,
+        handletextpad=0.7,
+        borderaxespad=0.0,
+    )
+    fig.subplots_adjust(left=0.03, right=0.97, bottom=0.05, top=0.98)
+    return fig
+
+
+def make_technical_route_schematic() -> plt.Figure:
+    fig, ax = make_figure_canvas(figsize=(15.2, 5.1))
+    ax.axis("off")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+
+    top_boxes = [
+        ((0.03, 0.62), 0.20, 0.24, "5类反应与10类取代基设计", "#EAF3FB"),
+        ((0.27, 0.62), 0.20, 0.24, "TS/反应物/产物\n结构建立", "#F3F6FB"),
+        ((0.51, 0.62), 0.20, 0.24, "ωB97X-D/6-31G(d)\n参考层计算", "#E7F2ED"),
+        ((0.75, 0.62), 0.20, 0.24, "多方法统一重算\n(8种方法)", "#F5EFE8"),
+    ]
+    bottom_boxes = [
+        ((0.15, 0.16), 0.22, 0.24, "提取指标:\nMAE / RMSE / R² / RMSD / 成功率", "#F7F3EA"),
+        ((0.43, 0.16), 0.22, 0.24, "跨反应综合比较\n与适用性评估", "#EEF3F8"),
+        ((0.71, 0.16), 0.22, 0.24, "分级工作流建议\n(预筛选→中层校验→高层确认)", "#ECEFF2"),
+    ]
+
+    for xy, width, height, text, facecolor in top_boxes:
+        add_schematic_box(ax, xy=xy, width=width, height=height, text=text, facecolor=facecolor, fontsize=11.0)
+    for xy, width, height, text, facecolor in bottom_boxes:
+        add_schematic_box(ax, xy=xy, width=width, height=height, text=text, facecolor=facecolor, fontsize=10.7)
+
+    for start_x in (0.23, 0.47, 0.71):
+        ax.annotate(
+            "",
+            xy=(start_x + 0.04, 0.74),
+            xytext=(start_x, 0.74),
+            arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545"},
+        )
+    ax.annotate(
+        "",
+        xy=(0.26, 0.40),
+        xytext=(0.85, 0.62),
+        arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545", "connectionstyle": "arc3,rad=-0.25"},
+    )
+    for start_x in (0.37, 0.65):
+        ax.annotate(
+            "",
+            xy=(start_x + 0.06, 0.28),
+            xytext=(start_x, 0.28),
+            arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545"},
+        )
+
+    return fig
+
+
+def make_recommended_workflow_schematic() -> plt.Figure:
+    fig, ax = make_figure_canvas(figsize=(13.6, 4.7))
+    ax.axis("off")
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+
+    stage_boxes = [
+        (
+            (0.05, 0.22),
+            0.26,
+            0.58,
+            "一级：低成本预筛选\n\nGFN2-xTB / AIQM2\n\n任务：初猜生成、候选粗筛",
+            "#EAF3FB",
+        ),
+        (
+            (0.37, 0.22),
+            0.26,
+            0.58,
+            "二级：中层校验\n\nMACE-OMOL-0 /\norb_v3_conservative_omol\n\n任务：候选排序、结构校核",
+            "#E8F4EC",
+        ),
+        (
+            (0.69, 0.22),
+            0.26,
+            0.58,
+            "三级：高层确认\n\nM06-2X/6-31G(d) /\nωB97X-D/6-31G(d)\n\n任务：关键样本定量确认",
+            "#F7EEE8",
+        ),
+    ]
+
+    for xy, width, height, text, facecolor in stage_boxes:
+        add_schematic_box(ax, xy=xy, width=width, height=height, text=text, facecolor=facecolor, fontsize=10.8)
+
+    ax.annotate(
+        "",
+        xy=(0.37, 0.51),
+        xytext=(0.31, 0.51),
+        arrowprops={"arrowstyle": "->", "lw": 1.6, "color": "#454545"},
+    )
+    ax.annotate(
+        "",
+        xy=(0.69, 0.51),
+        xytext=(0.63, 0.51),
+        arrowprops={"arrowstyle": "->", "lw": 1.6, "color": "#454545"},
+    )
+    ax.text(0.5, 0.11, "注：该图仅提供分级流程建议，不将 wall-time 作为定量坐标。", ha="center", va="center", fontsize=9.8)
     return fig
 
 
@@ -955,16 +1232,11 @@ def export_summary_figures(
     manifest_rows: list[dict[str, str]] = []
 
     summary_figures = [
-        ("summary_cross_reaction_mae_heatmap", make_cross_reaction_mae_heatmap(df_energy, benchmark_method)),
+        ("summary_dataset_coverage_matrix", make_summary_dataset_coverage_matrix(df_energy)),
+        ("summary_method_success_rate", make_summary_method_success_rate(df_energy)),
+        ("summary_method_reaction_mae_heatmap", make_summary_method_reaction_mae_heatmap(df_energy, benchmark_method)),
         ("summary_overall_radar", make_overall_radar_figure(df_energy, df_rmsd, benchmark_method)),
     ]
-    if df_rmsd is not None:
-        summary_figures.append(
-            (
-                "summary_structure_energy_facets",
-                make_cross_reaction_structure_energy_figure(df_energy, df_rmsd, benchmark_method),
-            )
-        )
 
     for suffix, figure in summary_figures:
         stem = summary_dir / suffix
@@ -974,6 +1246,31 @@ def export_summary_figures(
                 "scope": "summary",
                 "reaction_key": "ALL",
                 "reaction_display": "全反应汇总",
+                "figure_type": suffix,
+                "output_stem": str(stem),
+                "outputs": "; ".join(str(path) for path in export_paths),
+            }
+        )
+    return manifest_rows
+
+
+def export_schematic_figures(output_dir: Path, formats: list[str]) -> list[dict[str, str]]:
+    schematics_dir = output_dir / "schematics"
+    schematics_dir.mkdir(parents=True, exist_ok=True)
+    manifest_rows: list[dict[str, str]] = []
+
+    schematic_figures = [
+        ("figure_1_1_technical_route", make_technical_route_schematic()),
+        ("figure_7_1_recommended_workflow", make_recommended_workflow_schematic()),
+    ]
+    for suffix, figure in schematic_figures:
+        stem = schematics_dir / suffix
+        export_paths = finalize_figure(figure, stem, formats)
+        manifest_rows.append(
+            {
+                "scope": "schematic",
+                "reaction_key": "ALL",
+                "reaction_display": "论文方法学示意图",
                 "figure_type": suffix,
                 "output_stem": str(stem),
                 "outputs": "; ".join(str(path) for path in export_paths),
@@ -1026,6 +1323,7 @@ def main() -> None:
     manifest_rows = []
     manifest_rows.extend(export_reaction_figures(df_energy, args.output_dir, args.formats, benchmark_method))
     manifest_rows.extend(export_summary_figures(df_energy, df_rmsd, args.output_dir, args.formats, benchmark_method))
+    manifest_rows.extend(export_schematic_figures(args.output_dir, args.formats))
 
     manifest_df = pd.DataFrame(manifest_rows)
     manifest_path = args.output_dir / "figure_manifest.csv"
