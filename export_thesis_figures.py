@@ -132,6 +132,7 @@ NEUTRAL_FILL = "#F4F2EC"
 ERROR_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_error", ["#0F4D92", "#F7F4EE", "#B64342"])
 MAE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_mae", ["#FFF8F4", "#F3C3BC", "#B64342"])
 COVERAGE_CMAP = mcolors.LinearSegmentedColormap.from_list("chem_coverage", ["#FFFDFC", "#CBE7C8", "#0F4D92"])
+RESTRICTED_APPLICABILITY_METHODS = {"AIQM2", "ONIOM(AIQM2:GFN2-xTB)"}
 
 
 def apply_publication_style() -> None:
@@ -317,6 +318,16 @@ def get_default_benchmark_method(methods: list[str]) -> str:
     if not methods:
         raise ValueError("未识别到方法列。")
     return methods[0]
+
+
+def get_method_success_denominator(df_energy: pd.DataFrame, method_name: str) -> int:
+    if method_name in RESTRICTED_APPLICABILITY_METHODS and RESTRICTED_APPLICABILITY_METHODS.issubset(df_energy.columns):
+        # 中文注释：AIQM2 与 ONIOM 受元素适用范围约束，分母应按两者“可用样本并集”统计，
+        # 不能直接使用全库总样本数，否则会低估成功率。
+        mask = df_energy["AIQM2"].notna() | df_energy["ONIOM(AIQM2:GFN2-xTB)"].notna()
+        denominator = int(mask.sum())
+        return denominator if denominator > 0 else int(len(df_energy))
+    return int(len(df_energy))
 
 
 def get_reaction_spec(reaction_key: str) -> dict[str, str]:
@@ -549,39 +560,32 @@ def make_absolute_error_distribution_figure(
 ) -> plt.Figure:
     _, abs_error = build_error_tables(df_energy, benchmark_method)
     methods = list(abs_error.columns)
-    fig, ax = make_figure_canvas(figsize=(13.4, 6.4))
+    fig, ax = make_figure_canvas(figsize=(13.4, 6.5))
 
+    global_max = 0.0
     for idx, method_name in enumerate(methods, start=1):
-        values = abs_error[method_name].dropna().to_numpy()
+        values = abs_error[method_name].dropna().to_numpy(dtype=float)
+        color = METHOD_COLOR_MAP.get(method_name, "#666666")
         if values.size == 0:
+            ax.text(idx, 0.25, "n=0", ha="center", va="bottom", fontsize=9.3, color="#666666")
             continue
-        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
-        jitter = RNG.normal(loc=idx, scale=0.06, size=values.size)
-        ax.scatter(
-            jitter,
-            values,
-            s=20,
-            color=color,
-            alpha=0.58,
-            linewidths=0.0,
-            zorder=3,
+
+        global_max = max(global_max, float(np.nanmax(values)))
+        ax.boxplot(
+            [values],
+            positions=[idx],
+            widths=0.55,
+            patch_artist=True,
+            showfliers=False,
+            boxprops={"facecolor": with_alpha(color, 0.22), "edgecolor": color, "linewidth": 1.8},
+            medianprops={"color": "#2A2A2A", "linewidth": 2.0},
+            whiskerprops={"color": color, "linewidth": 1.6},
+            capprops={"color": color, "linewidth": 1.6},
         )
 
-        q10, q25, median, q75, q90 = np.quantile(values, [0.10, 0.25, 0.50, 0.75, 0.90])
-        ax.vlines(idx, q10, q90, color=color, linewidth=1.4, alpha=0.95, zorder=4)
-        ax.vlines(idx, q25, q75, color=color, linewidth=8.0, alpha=0.30, zorder=5)
-        ax.scatter(
-            [idx],
-            [median],
-            s=54,
-            facecolor="white",
-            edgecolor=color,
-            linewidth=1.6,
-            zorder=6,
-        )
-
-        # 中文注释：样本数在不同方法间并不一致，直接写出 n 能减少读图时对分布宽度的误判。
-        ax.text(idx, q90 + 0.18, f"n={values.size}", ha="center", va="bottom", fontsize=9.5, color="#4f4f4f")
+        jitter = RNG.normal(loc=idx, scale=0.07, size=values.size)
+        ax.scatter(jitter, values, s=25, color=color, alpha=0.55, linewidths=0.0, zorder=4)
+        ax.text(idx, float(np.nanmax(values)) + 0.20, f"n={values.size}", ha="center", va="bottom", fontsize=9.3, color="#555555")
 
     ax.set_xlabel("计算方法")
     ax.set_ylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)")
@@ -594,7 +598,7 @@ def make_absolute_error_distribution_figure(
     )
     ax.grid(axis="y")
     ax.set_xlim(0.4, len(methods) + 0.6)
-    ax.set_ylim(bottom=0.0)
+    ax.set_ylim(0.0, max(1.0, global_max * 1.14))
     fig.subplots_adjust(left=0.10, right=0.98, bottom=0.26, top=0.98)
     return fig
 
@@ -609,8 +613,8 @@ def make_error_heatmap_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
     color_limit = np.nanmax(np.abs(matrix)) if np.isfinite(matrix).any() else 1.0
     color_limit = max(float(color_limit), 1.0)
 
-    fig_height = max(7.0, 2.0 + 0.18 * len(systems))
-    fig, ax = make_figure_canvas(figsize=(10.6, fig_height))
+    fig_height = max(7.2, 2.1 + 0.18 * len(systems))
+    fig, ax = make_figure_canvas(figsize=(13.0, fig_height))
     cmap = ERROR_CMAP.copy()
     cmap.set_bad(NEUTRAL_FILL)
     masked = np.ma.masked_invalid(matrix)
@@ -621,7 +625,13 @@ def make_error_heatmap_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
     ax.set_xlabel("计算方法")
     ax.set_ylabel(f"{reaction_spec['display']}体系")
     ax.set_xticks(np.arange(len(methods)))
-    ax.set_xticklabels([METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods])
+    ax.set_xticklabels(
+        [METHOD_PLOT_LABELS.get(method_name, method_name) for method_name in methods],
+        rotation=28,
+        ha="right",
+        rotation_mode="anchor",
+        fontsize=9.4,
+    )
     ax.set_yticks(np.arange(len(systems)))
     ax.set_yticklabels(systems, fontsize=8 if len(systems) > 35 else 9)
 
@@ -643,7 +653,7 @@ def make_error_heatmap_figure(df_energy: pd.DataFrame, reaction_spec: dict[str, 
 
     colorbar = fig.colorbar(image, ax=ax, fraction=0.030, pad=0.02)
     colorbar.set_label("相对参考层的能垒误差 ΔE (kcal/mol)")
-    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.10, top=0.99)
+    fig.subplots_adjust(left=0.22, right=0.92, bottom=0.24, top=0.99)
     return fig
 
 
@@ -829,6 +839,78 @@ def make_cross_reaction_structure_energy_figure(
     return fig
 
 
+def make_reaction_structure_efficiency_figure(
+    df_energy: pd.DataFrame,
+    df_rmsd: pd.DataFrame,
+    reaction_spec: dict[str, str],
+    benchmark_method: str,
+) -> plt.Figure:
+    merged = build_structure_energy_dataset(df_energy, df_rmsd, benchmark_method)
+    subset = merged[merged["Reaction"].astype(str).str.casefold() == reaction_spec["key"].casefold()].copy()
+    if subset.empty:
+        raise ValueError(f"{reaction_spec['display']} 缺少可用于结构-效率图的联合样本。")
+
+    methods = sort_methods(subset["Method"].dropna().unique().tolist())
+    x_limit = max(float(subset["RMSD"].max()) * 1.10, 0.12)
+    y_limit = max(float(subset["AbsError"].max()) * 1.12, 1.0)
+
+    fig = plt.figure(figsize=(12.8, 6.8))
+    fig.patch.set_facecolor(PAPER_BG)
+    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.3, 1.2], wspace=0.02)
+    ax = fig.add_subplot(grid[0, 0])
+    legend_ax = fig.add_subplot(grid[0, 1])
+    legend_ax.set_facecolor(PANEL_BG)
+    legend_ax.axis("off")
+
+    for method_name in methods:
+        method_subset = subset[subset["Method"] == method_name]
+        color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
+        marker = METHOD_MARKER_MAP.get(method_name, "o")
+        ax.scatter(
+            method_subset["RMSD"],
+            method_subset["AbsError"],
+            s=30,
+            color=color,
+            marker=marker,
+            edgecolors="white",
+            linewidths=0.35,
+            alpha=0.78,
+            zorder=3,
+        )
+        if len(method_subset) >= 2:
+            # 中文注释：增加“方法中位点”可帮助读者快速比较各方法典型误差水平，避免仅靠点云主观判断。
+            ax.scatter(
+                [float(method_subset["RMSD"].median())],
+                [float(method_subset["AbsError"].median())],
+                s=82,
+                facecolors="white",
+                edgecolors=color,
+                linewidths=1.8,
+                marker=marker,
+                zorder=5,
+            )
+
+    # 中文注释：按你的要求，这张图仅保留原始结构-能量关系，不再添加安全区/失效区背景分区。
+    ax.set_xlabel("过渡态结构偏差 RMSD (Å)")
+    ax.set_ylabel("相对参考层的绝对能垒误差 |ΔE| (kcal/mol)")
+    ax.set_xlim(0.0, x_limit)
+    ax.set_ylim(0.0, y_limit)
+    ax.grid(axis="both", color=GRID_COLOR, linewidth=0.7, alpha=0.35)
+
+    legend_ax.legend(
+        handles=build_method_handles(methods),
+        loc="center left",
+        bbox_to_anchor=(0.0, 0.5),
+        frameon=False,
+        handlelength=1.9,
+        handletextpad=0.7,
+        labelspacing=0.62,
+        borderaxespad=0.0,
+    )
+    fig.subplots_adjust(left=0.09, right=0.98, bottom=0.12, top=0.98)
+    return fig
+
+
 def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
     methods = get_method_columns(df_energy)
     matrix = np.full((len(REACTION_SPECS), len(methods)), np.nan, dtype=float)
@@ -877,12 +959,18 @@ def make_summary_dataset_coverage_matrix(df_energy: pd.DataFrame) -> plt.Figure:
 
 def make_summary_method_success_rate(df_energy: pd.DataFrame) -> plt.Figure:
     methods = get_method_columns(df_energy)
-    total = len(df_energy)
-    if total == 0:
+    total = int(len(df_energy))
+    if total <= 0:
         raise ValueError("energy 数据为空，无法计算成功率。")
 
     success_counts = np.array([int(df_energy[method_name].notna().sum()) for method_name in methods], dtype=int)
-    rates = success_counts / total * 100.0
+    denominators = np.array([get_method_success_denominator(df_energy, method_name) for method_name in methods], dtype=int)
+    rates = np.divide(
+        success_counts * 100.0,
+        denominators,
+        out=np.zeros_like(success_counts, dtype=float),
+        where=denominators > 0,
+    )
     x = np.arange(len(methods))
 
     fig, ax = make_figure_canvas(figsize=(12.4, 6.3))
@@ -896,12 +984,11 @@ def make_summary_method_success_rate(df_energy: pd.DataFrame) -> plt.Figure:
         zorder=3,
     )
 
-    # 中文注释：成功率分母固定为全样本总数，确保不同方法之间可直接横向比较。
-    for idx, (bar, success, rate) in enumerate(zip(bars, success_counts, rates)):
+    for bar, success, denominator, rate in zip(bars, success_counts, denominators, rates):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 1.1,
-            f"{rate:.1f}%\n({success}/{total})",
+            f"{rate:.1f}%\n({success}/{denominator})",
             ha="center",
             va="bottom",
             fontsize=9.2,
@@ -972,16 +1059,20 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
     metric_rows = []
     for method_name in plot_methods:
         pair_df = df_energy[[benchmark_method, method_name]].dropna(subset=[benchmark_method, method_name]).copy()
-        if len(pair_df) < 2:
+        if pair_df.empty:
             continue
         diff = pair_df[method_name] - pair_df[benchmark_method]
-        corr_value = pair_df[benchmark_method].corr(pair_df[method_name])
+        corr_value = pair_df[benchmark_method].corr(pair_df[method_name]) if len(pair_df) >= 2 else np.nan
+        denominator = get_method_success_denominator(df_energy, method_name)
+        success_rate = float(df_energy[method_name].notna().sum()) / float(denominator) if denominator > 0 else 0.0
         metric_rows.append(
             {
                 "Method": method_name,
                 "MAE": diff.abs().mean(),
                 "RMSE": np.sqrt((diff ** 2).mean()),
+                "MaxError": diff.abs().max(),
                 "R2": 0.0 if pd.isna(corr_value) else corr_value ** 2,
+                "SuccessRate": success_rate,
             }
         )
 
@@ -989,50 +1080,36 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
         raise ValueError("有效配对样本不足，无法生成综合性能雷达图。")
 
     metrics_df = pd.DataFrame(metric_rows)
-    scores_df = metrics_df.copy()
-    for column_name in ["MAE", "RMSE"]:
-        min_value = metrics_df[column_name].min()
-        max_value = metrics_df[column_name].max()
-        scores_df[column_name] = 1.0 if max_value == min_value else (max_value - metrics_df[column_name]) / (max_value - min_value)
+    scores_df = metrics_df[["Method"]].copy()
 
-    r2_min = metrics_df["R2"].min()
-    r2_max = metrics_df["R2"].max()
-    scores_df["R2"] = 1.0 if r2_max == r2_min else (metrics_df["R2"] - r2_min) / (r2_max - r2_min)
-    scores_df["EnergyScore"] = scores_df[["MAE", "RMSE", "R2"]].mean(axis=1)
+    def normalize_lower_better(series: pd.Series) -> pd.Series:
+        min_value = float(series.min())
+        max_value = float(series.max())
+        return pd.Series(1.0, index=series.index) if max_value == min_value else (max_value - series) / (max_value - min_value)
 
-    if df_rmsd is not None:
-        rmsd_rows = []
-        rmsd_methods = set(get_method_columns(df_rmsd))
-        for method_name in scores_df["Method"]:
-            if method_name not in rmsd_methods:
-                continue
-            method_rmsd = df_rmsd[method_name].dropna()
-            if not method_rmsd.empty:
-                rmsd_rows.append({"Method": method_name, "MeanRMSD": method_rmsd.mean()})
-        if rmsd_rows:
-            scores_df = scores_df.merge(pd.DataFrame(rmsd_rows), on="Method", how="left")
+    def normalize_higher_better(series: pd.Series) -> pd.Series:
+        min_value = float(series.min())
+        max_value = float(series.max())
+        return pd.Series(1.0, index=series.index) if max_value == min_value else (series - min_value) / (max_value - min_value)
 
-    if "MeanRMSD" in scores_df.columns and scores_df["MeanRMSD"].notna().all():
-        rmsd_min = scores_df["MeanRMSD"].min()
-        rmsd_max = scores_df["MeanRMSD"].max()
-        scores_df["StructureScore"] = (
-            1.0 if rmsd_max == rmsd_min else (rmsd_max - scores_df["MeanRMSD"]) / (rmsd_max - rmsd_min)
-        )
-    else:
-        # 中文注释：若结构数据不完整，则退化为能量主导得分，避免雷达图出现断边。
-        scores_df["StructureScore"] = scores_df["EnergyScore"]
+    # 中文注释：雷达图展示的是“归一化后相对得分”，原始绝对数值仍由其他图（热图/箱线图/成功率柱图）承载。
+    scores_df["MAE_score"] = normalize_lower_better(metrics_df["MAE"])
+    scores_df["RMSE_score"] = normalize_lower_better(metrics_df["RMSE"])
+    scores_df["MaxError_score"] = normalize_lower_better(metrics_df["MaxError"])
+    scores_df["R2_score"] = normalize_higher_better(metrics_df["R2"])
+    scores_df["Success_score"] = normalize_higher_better(metrics_df["SuccessRate"])
 
-    scores_df["OverallScore"] = scores_df[["EnergyScore", "StructureScore"]].mean(axis=1)
     order_map = {method_name: idx for idx, method_name in enumerate(THESIS_METHOD_ORDER)}
     scores_df = scores_df.sort_values(by="Method", key=lambda series: series.map(order_map).fillna(len(order_map)))
 
-    categories = ["能垒准确性", "结构准确性", "综合表现"]
+    categories = ["MAE", "RMSE", "MaxError", "R²", "成功率"]
+    value_columns = ["MAE_score", "RMSE_score", "MaxError_score", "R2_score", "Success_score"]
     angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False)
     angles = np.concatenate([angles, [angles[0]]])
 
-    fig = plt.figure(figsize=(12.8, 7.2))
+    fig = plt.figure(figsize=(14.2, 7.8))
     fig.patch.set_facecolor(PAPER_BG)
-    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.4, 1.2], wspace=0.02)
+    grid = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.0, 1.4], wspace=0.02)
     ax = fig.add_subplot(grid[0, 0], polar=True)
     legend_ax = fig.add_subplot(grid[0, 1])
     legend_ax.set_facecolor(PANEL_BG)
@@ -1043,15 +1120,16 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(categories, fontsize=13)
+    ax.tick_params(axis="x", pad=16)
     ax.set_ylim(0.0, 1.0)
     ax.set_yticks([0.25, 0.50, 0.75, 1.00])
     ax.set_yticklabels(["0.25", "0.50", "0.75", "1.00"], fontsize=10)
-    ax.grid(color=GRID_COLOR, linewidth=0.7, alpha=0.55)
+    ax.grid(color=GRID_COLOR, linewidth=0.75, alpha=0.60)
 
     handles = []
     for _, row in scores_df.iterrows():
         method_name = row["Method"]
-        values = np.array([row["EnergyScore"], row["StructureScore"], row["OverallScore"]])
+        values = np.array([float(row[column_name]) for column_name in value_columns])
         values = np.concatenate([values, [values[0]]])
         color = METHOD_COLOR_MAP.get(method_name, "#4f4f4f")
         marker = METHOD_MARKER_MAP.get(method_name, "o")
@@ -1059,18 +1137,18 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
             angles,
             values,
             color=color,
-            linewidth=2.2,
+            linewidth=2.0,
             marker=marker,
-            markersize=5.5,
+            markersize=4.8,
         )
-        ax.fill(angles, values, color=with_alpha(color, 0.10))
+        ax.fill(angles, values, color=with_alpha(color, 0.08))
         handles.append(
             Line2D(
                 [0],
                 [0],
                 color=color,
                 marker=marker,
-                linewidth=2.2,
+                linewidth=2.0,
                 label=METHOD_PLOT_LABELS.get(method_name, method_name),
             )
         )
@@ -1080,56 +1158,49 @@ def make_overall_radar_figure(df_energy: pd.DataFrame, df_rmsd: pd.DataFrame | N
         loc="center left",
         bbox_to_anchor=(0.0, 0.5),
         frameon=False,
-        handlelength=2.0,
+        handlelength=1.9,
         handletextpad=0.7,
+        labelspacing=0.66,
         borderaxespad=0.0,
     )
-    fig.subplots_adjust(left=0.03, right=0.97, bottom=0.05, top=0.98)
+    fig.subplots_adjust(left=0.03, right=0.98, bottom=0.05, top=0.98)
     return fig
 
 
 def make_technical_route_schematic() -> plt.Figure:
-    fig, ax = make_figure_canvas(figsize=(15.2, 5.1))
+    fig, ax = make_figure_canvas(figsize=(17.0, 4.2))
     ax.axis("off")
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, 1.0)
 
-    top_boxes = [
-        ((0.03, 0.62), 0.20, 0.24, "5类反应与10类取代基设计", "#EAF3FB"),
-        ((0.27, 0.62), 0.20, 0.24, "TS/反应物/产物\n结构建立", "#F3F6FB"),
-        ((0.51, 0.62), 0.20, 0.24, "ωB97X-D/6-31G(d)\n参考层计算", "#E7F2ED"),
-        ((0.75, 0.62), 0.20, 0.24, "多方法统一重算\n(8种方法)", "#F5EFE8"),
+    nodes = [
+        ("5类反应与10类取代基设计", "#EAF3FB"),
+        ("TS/反应物/产物\n结构建立", "#F3F6FB"),
+        ("ωB97X-D/6-31G(d) 参考层计算\n+ 多方法统一重算(8种方法)", "#E7F2ED"),
+        ("提取 MAE / RMSE / R² / RMSD / 成功率\n+ 跨反应综合比较与适用性评估", "#F7F3EA"),
+        ("分级工作流建议\n(预筛选→中层校验→高层确认)", "#ECEFF2"),
     ]
-    bottom_boxes = [
-        ((0.15, 0.16), 0.22, 0.24, "提取指标:\nMAE / RMSE / R² / RMSD / 成功率", "#F7F3EA"),
-        ((0.43, 0.16), 0.22, 0.24, "跨反应综合比较\n与适用性评估", "#EEF3F8"),
-        ((0.71, 0.16), 0.22, 0.24, "分级工作流建议\n(预筛选→中层校验→高层确认)", "#ECEFF2"),
-    ]
+    x_positions = [0.02, 0.215, 0.410, 0.605, 0.800]
+    box_w, box_h = 0.18, 0.52
 
-    for xy, width, height, text, facecolor in top_boxes:
-        add_schematic_box(ax, xy=xy, width=width, height=height, text=text, facecolor=facecolor, fontsize=11.0)
-    for xy, width, height, text, facecolor in bottom_boxes:
-        add_schematic_box(ax, xy=xy, width=width, height=height, text=text, facecolor=facecolor, fontsize=10.7)
-
-    for start_x in (0.23, 0.47, 0.71):
-        ax.annotate(
-            "",
-            xy=(start_x + 0.04, 0.74),
-            xytext=(start_x, 0.74),
-            arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545"},
+    for (text, facecolor), x_pos in zip(nodes, x_positions):
+        add_schematic_box(
+            ax,
+            xy=(x_pos, 0.24),
+            width=box_w,
+            height=box_h,
+            text=text,
+            facecolor=facecolor,
+            fontsize=10.8,
         )
-    ax.annotate(
-        "",
-        xy=(0.26, 0.40),
-        xytext=(0.85, 0.62),
-        arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545", "connectionstyle": "arc3,rad=-0.25"},
-    )
-    for start_x in (0.37, 0.65):
+
+    # 中文注释：采用单行流程图可彻底消除连接线交叉，更符合论文插图的版面规范。
+    for left_x in x_positions[:-1]:
         ax.annotate(
             "",
-            xy=(start_x + 0.06, 0.28),
-            xytext=(start_x, 0.28),
-            arrowprops={"arrowstyle": "->", "lw": 1.4, "color": "#454545"},
+            xy=(left_x + box_w + 0.015, 0.50),
+            xytext=(left_x + box_w, 0.50),
+            arrowprops={"arrowstyle": "->", "lw": 1.5, "color": "#454545"},
         )
 
     return fig
@@ -1180,12 +1251,12 @@ def make_recommended_workflow_schematic() -> plt.Figure:
         xytext=(0.63, 0.51),
         arrowprops={"arrowstyle": "->", "lw": 1.6, "color": "#454545"},
     )
-    ax.text(0.5, 0.11, "注：该图仅提供分级流程建议，不将 wall-time 作为定量坐标。", ha="center", va="center", fontsize=9.8)
     return fig
 
 
 def export_reaction_figures(
     df_energy: pd.DataFrame,
+    df_rmsd: pd.DataFrame | None,
     output_dir: Path,
     formats: list[str],
     benchmark_method: str,
@@ -1203,6 +1274,15 @@ def export_reaction_figures(
             ("absolute_error_distribution", make_absolute_error_distribution_figure(reaction_energy, spec, benchmark_method)),
             ("barrier_trend", make_barrier_trend_figure(reaction_energy, spec, benchmark_method)),
         ]
+        if df_rmsd is not None:
+            reaction_rmsd = get_reaction_subset(df_rmsd, spec["key"])
+            if not reaction_rmsd.empty:
+                figure_builders.append(
+                    (
+                        "structure_efficiency",
+                        make_reaction_structure_efficiency_figure(reaction_energy, reaction_rmsd, spec, benchmark_method),
+                    )
+                )
 
         for suffix, figure in figure_builders:
             stem = reaction_dir / f"{spec['stem']}_{suffix}"
@@ -1321,7 +1401,7 @@ def main() -> None:
     benchmark_method = get_default_benchmark_method(methods)
 
     manifest_rows = []
-    manifest_rows.extend(export_reaction_figures(df_energy, args.output_dir, args.formats, benchmark_method))
+    manifest_rows.extend(export_reaction_figures(df_energy, df_rmsd, args.output_dir, args.formats, benchmark_method))
     manifest_rows.extend(export_summary_figures(df_energy, df_rmsd, args.output_dir, args.formats, benchmark_method))
     manifest_rows.extend(export_schematic_figures(args.output_dir, args.formats))
 
